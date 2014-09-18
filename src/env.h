@@ -123,6 +123,7 @@ namespace node {
   V(issuer_string, "issuer")                                                  \
   V(issuercert_string, "issuerCertificate")                                   \
   V(kill_signal_string, "killSignal")                                         \
+  V(lm_string, "lm")                                                          \
   V(mac_string, "mac")                                                        \
   V(mark_sweep_compact_string, "mark-sweep-compact")                          \
   V(max_buffer_string, "maxBuffer")                                           \

@@ -1,6 +1,8 @@
 {
   'variables': {
     'v8_use_snapshot%': 'true',
+    'v8_enable_disassembler%': 'true',
+    'v8_object_print%': 'true',
     'node_use_dtrace%': 'false',
     'node_use_etw%': 'false',
     'node_use_perfctr%': 'false',
@@ -87,6 +89,7 @@
       ],
 
       'sources': [
+        'src/allocs.cc',
         'src/fs_event_wrap.cc',
         'src/cares_wrap.cc',
         'src/handle_wrap.cc',
@@ -329,6 +332,34 @@
             'PLATFORM="sunos"',
           ],
         }],
+        [
+          'OS=="linux"' , {
+			# we need -fno-strict-aliasing to use the persistent reinterpret_cast safely
+			'cflags_cc': [ '-fno-strict-aliasing' ],
+            'ldflags': [ 
+                        '-Wl,--wrap,malloc', '-Wl,--wrap,calloc', '-Wl,--wrap,realloc', 
+                         '-Wl,--wrap,free', '-Wl,--wrap,memalign', '-Wl,--wrap,posix_memalign',
+                         '-Wl,--wrap,malloc_usable_size',
+                         # these are necessary s.t. dynamically-linked refs to malloc,
+                         # from libraries (e.g. from libstdc++'s operator new)
+                         # get our executable's malloc.
+                         #'-Wl,--defsym,malloc=__wrap_malloc',
+                         #'-Wl,--defsym,calloc=__wrap_calloc',
+                         #'-Wl,--defsym,realloc=__wrap_realloc',
+                         #'-Wl,--defsym,free=__wrap_free',
+                         #'-Wl,--defsym,memalign=__wrap_memalign',
+                         #'-Wl,--defsym,posix_memalign=__wrap_posix_memalign',
+                         #'-Wl,--defsym,malloc_usable_size=__wrap_malloc_usable_size',
+# HACK: work around lack of exhaustive aliases for function uniqtypes
+# -- the Right Way to do this is to compile our code with allocsc++, 
+# which would do this rewrite of the undef'd symbol name. But allocsc++
+# is not there yet. 
+'-Wl,--defsym,__uniqtype____FUN_FROM___FUN_TO_unsigned_long_int=__uniqtype____FUN_FROM___FUN_TO_uint\$$64'
+ ],
+            'libraries': [ '-Bstatic', '-lallocs_exe', '-Bdynamic', '-lffi' ],
+            #'libraries': [ '-lallocs_preload', '-lffi' ],
+          }
+        ],
         [
           'OS=="linux" and node_shared_v8=="false"', {
             'ldflags': [

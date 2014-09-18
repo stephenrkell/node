@@ -583,7 +583,7 @@ class QueryTxtWrap: public QueryWrap {
     for (uint32_t j = 0; current != NULL; current = current->next) {
       Local<String> txt = OneByteString(env()->isolate(), current->txt);
       // New record found - write out the current chunk
-      if (current->record_start) {
+      if (current->txt) {
         if (!txt_chunk.IsEmpty())
           txt_records->Set(i++, txt_chunk);
         txt_chunk = Array::New(env()->isolate());

@@ -62,6 +62,8 @@
 #include <string.h>
 #include <sys/types.h>
 
+#include "allocs.h"
+
 #if defined(_MSC_VER)
 #include <direct.h>
 #include <io.h>
@@ -95,6 +97,7 @@ using v8::Boolean;
 using v8::Context;
 using v8::EscapableHandleScope;
 using v8::Exception;
+using v8::External;
 using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
@@ -658,7 +661,9 @@ const char *signo_string(int signo) {
 #endif
 
 #ifdef SIGLOST
+# if SIGLOST != SIGABRT
   SIGNO_CASE(SIGLOST);
+# endif
 #endif
 
 #ifdef SIGPWR
@@ -2130,7 +2135,6 @@ NO_RETURN void FatalError(const char* location, const char* message) {
   abort();
 }
 
-
 void FatalException(Isolate* isolate,
                     Handle<Value> error,
                     Handle<Message> message) {
@@ -2677,6 +2681,81 @@ void SetupProcessObject(Environment* env,
                                                 Object::New(env->isolate()));
   Local<Object> process_env = process_env_template->NewInstance();
   process->Set(env->env_string(), process_env);
+
+  // create process link map
+  Local<ObjectTemplate> lm_template = ObjectTemplate::New(env->isolate());
+  lm_template->SetNamedPropertyHandler(LinkMapGetter,
+                                       LinkMapSetter,
+                                       LinkMapQuery,
+                                       LinkMapDeleter,
+                                       LinkMapEnumerator,
+                                       Object::New(env->isolate()));
+  Local<Object> lm = lm_template->NewInstance();
+  process->Set(env->lm_string(), lm);
+  
+  // with-data-members
+  allocs_struct_template.Reset(env->isolate(), ObjectTemplate::New(env->isolate()));
+  PERSISTENT_DEREFABLE_AS(ObjectTemplate, allocs_struct_template)->SetNamedPropertyHandler(AllocsStructGetter,
+                                    AllocsStructSetter,
+                                    AllocsStructQuery,
+                                    AllocsStructDeleter,
+                                    AllocsStructEnumerator,
+                                    Object::New(env->isolate()));
+  PERSISTENT_DEREFABLE_AS(ObjectTemplate, allocs_struct_template)->SetInternalFieldCount(2);
+  
+  // arrays
+  allocs_array_template.Reset(env->isolate(), ObjectTemplate::New(env->isolate()));
+  PERSISTENT_DEREFABLE_AS(ObjectTemplate, allocs_array_template)->SetIndexedPropertyHandler(AllocsArrayGetter,
+                                     AllocsArraySetter,
+                                     AllocsArrayQuery,
+                                     AllocsArrayDeleter,
+                                     AllocsArrayEnumerator,
+                                     Object::New(env->isolate()));
+  PERSISTENT_DEREFABLE_AS(ObjectTemplate, allocs_array_template)->SetInternalFieldCount(2);
+
+  /* functions -- do we want to use ObjectTemplate and SetCallAsFunctionHandler, or FunctionTemplate?
+   *
+   * When I first tried using ObjectTemplate and SetCallAsFunctionHandler, it didn't work: 
+   * my Callee() in the handler callback wasn't the object I'd created (with the internal fields).
+   * I have no idea why. But let's try using FunctionTemplate instead.
+   * 
+   * Functions have instances and prototypes. Properties can go on all three. How do we want
+   * to arrange things?  Maybe...
+   * 
+   * - one function template
+   * - one function per native function
+   * - generate instances of the native function on demand, and set the internal field on that?
+   * 
+   * How do we remember the instance of the native function?
+   * We don't have to; we just GetFunction(). Oh, but that means we have just one function total.
+   * Okay, that might work.
+   */
+  allocs_function_template.Reset(env->isolate(), FunctionTemplate::New(env->isolate()));
+  /* we need to set up our stuff on the InstanceTemplate */
+  PERSISTENT_DEREFABLE_AS(FunctionTemplate, allocs_function_template)->InstanceTemplate()->SetCallAsFunctionHandler(AllocsFunctionCaller);
+  PERSISTENT_DEREFABLE_AS(FunctionTemplate, allocs_function_template)->InstanceTemplate()->SetInternalFieldCount(2);
+  /* node uses the "inspect" protocol to print out object state from its repl. 
+   * So we provide a friendly printer. */
+  PERSISTENT_DEREFABLE_AS(FunctionTemplate, allocs_function_template)->InstanceTemplate()->Set(
+  	FIXED_ONE_BYTE_STRING(env->isolate(), "inspect"), 
+	/* The "inspect" property is itself a FunctionTemplate? okay... */
+	FunctionTemplate::New(env->isolate(), AllocsFunctionPrinter));
+ 
+  /* primitives -- how? Answer: they always come from a context that we control. 
+   * So we don't need to treat them as objects per se. We just intercept reads 
+   * and writes of primitives in the context of their containing object, and
+   * do the native<-->JS conversion. */
+  
+  /* char and wchar pointers -- how? Again, we reify them as JS strings at the
+   * point where we pull them out of a context. 
+   * 
+   * Example: char **environ. 
+   * 
+   * environ comes out of the link map's toplevel context. It points to an array
+   * of pointer-to-char. That array gets reified as an instance of allocs_array_template. 
+   * If we grab an element out of that array, it means it's a char*. The code in
+   * the array's indexed property getter spots this and  */
+
 
   READONLY_PROPERTY(process, "pid", Integer::New(env->isolate(), getpid()));
   READONLY_PROPERTY(process, "features", GetFeatures(env));
