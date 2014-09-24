@@ -1,0 +1,12 @@
+fix preloadness problem
+
+get link_map structure visibility working (as a test of preloadness)
+
+struct enumerator, getter, setter
+
+reify libraries separately from each other
+
+(how to enumerate symbols? just rely on tab completion? probably some JS feature exists)
+
+dlsym() on a specific library
+

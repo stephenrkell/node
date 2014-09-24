@@ -2713,6 +2713,16 @@ void SetupProcessObject(Environment* env,
                                      Object::New(env->isolate()));
   PERSISTENT_DEREFABLE_AS(ObjectTemplate, allocs_array_template)->SetInternalFieldCount(2);
 
+  // base type instances
+  allocs_base_template.Reset(env->isolate(), ObjectTemplate::New(env->isolate()));
+  PERSISTENT_DEREFABLE_AS(ObjectTemplate, allocs_base_template)->SetIndexedPropertyHandler(AllocsBaseGetter,
+                                     AllocsBaseSetter,
+                                     AllocsBaseQuery,
+                                     AllocsBaseDeleter,
+                                     AllocsBaseEnumerator,
+                                     Object::New(env->isolate()));
+  PERSISTENT_DEREFABLE_AS(ObjectTemplate, allocs_base_template)->SetInternalFieldCount(2);
+
   /* functions -- do we want to use ObjectTemplate and SetCallAsFunctionHandler, or FunctionTemplate?
    *
    * When I first tried using ObjectTemplate and SetCallAsFunctionHandler, it didn't work: 
@@ -2740,6 +2750,11 @@ void SetupProcessObject(Environment* env,
   	FIXED_ONE_BYTE_STRING(env->isolate(), "inspect"), 
 	/* The "inspect" property is itself a FunctionTemplate? okay... */
 	FunctionTemplate::New(env->isolate(), AllocsFunctionPrinter));
+  /* Friendly printer for base type instances too */
+  PERSISTENT_DEREFABLE_AS(ObjectTemplate, allocs_base_template)->Set(
+  	FIXED_ONE_BYTE_STRING(env->isolate(), "inspect"), 
+	/* The "inspect" property is itself a FunctionTemplate? okay... */
+	FunctionTemplate::New(env->isolate(), AllocsBasePrinter));
  
   /* primitives -- how? Answer: they always come from a context that we control. 
    * So we don't need to treat them as objects per se. We just intercept reads 

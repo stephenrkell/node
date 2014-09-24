@@ -41,6 +41,7 @@ using v8::kExternalUnsignedIntArray;
 
 extern Persistent<ObjectTemplate, v8::CopyablePersistentTraits<ObjectTemplate> > allocs_struct_template;
 extern Persistent<ObjectTemplate, v8::CopyablePersistentTraits<ObjectTemplate> > allocs_array_template;
+extern Persistent<ObjectTemplate, v8::CopyablePersistentTraits<ObjectTemplate> > allocs_base_template;
 extern Persistent<FunctionTemplate, v8::CopyablePersistentTraits<FunctionTemplate> > allocs_function_template;
 
 /* HACK: unbelievably, this is what the v8 devs recommend
@@ -94,6 +95,22 @@ void AllocsArrayDeleter(uint32_t index,
 
 void AllocsArrayEnumerator(const PropertyCallbackInfo<Array>& info);
 
+void AllocsBaseGetter(uint32_t index,
+                       const PropertyCallbackInfo<Value>& info);
+
+void AllocsBaseSetter(uint32_t index,
+                       Local<Value> value,
+                       const PropertyCallbackInfo<Value>& info);
+
+void AllocsBaseQuery(uint32_t index,
+                      const PropertyCallbackInfo<Integer>& info);
+
+void AllocsBaseDeleter(uint32_t index,
+                        const PropertyCallbackInfo<Boolean>& info);
+
+void AllocsBaseEnumerator(const PropertyCallbackInfo<Array>& info);
+void AllocsBasePrinter(const FunctionCallbackInfo<Value>& args);
+
 void AllocsFunctionPrinter(const FunctionCallbackInfo<Value>& args);
 
 void AllocsFunctionCaller(const FunctionCallbackInfo<Value>& info);
@@ -117,7 +134,7 @@ Local<Value> v8_set_named(Environment *env, void *ptr, const char *n,
     struct uniqtype *element_outermost, void *val);
 ffi_type *ffi_type_for_uniqtype(struct uniqtype *t);
 void *v8_make_uniqtype_instance(Environment *env, Local<Value> v, struct uniqtype *t);
-Local<Value> v8_make_value(Environment *env, ffi_arg *p_val, struct uniqtype *t);
+Local<Value> v8_make_value(Environment *env, void *p_val_raw, struct uniqtype *t);
 } // end namespace node
 
 #endif

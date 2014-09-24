@@ -40,6 +40,7 @@ namespace node
 {
 Persistent<ObjectTemplate, v8::CopyablePersistentTraits<ObjectTemplate> > allocs_struct_template;
 Persistent<ObjectTemplate, v8::CopyablePersistentTraits<ObjectTemplate> > allocs_array_template;
+Persistent<ObjectTemplate, v8::CopyablePersistentTraits<ObjectTemplate> > allocs_base_template;
 Persistent<FunctionTemplate, v8::CopyablePersistentTraits<FunctionTemplate> > allocs_function_template;
 
 void LinkMapGetter(Local<String> property,
@@ -276,20 +277,56 @@ void AllocsStructGetter(Local<String> property,
                         const PropertyCallbackInfo<Value>& info) {
   Environment* env = Environment::GetCurrent(info.GetIsolate());
   HandleScope scope(env->isolate());
-  
-  // try looking up the field
-  String::Utf8Value key(property);
 
-  void* val = dlsym(RTLD_DEFAULT, *key);
-  if (val && reinterpret_cast<uintptr_t>(val) % 2u == 0) {
-    Local<Value> v = External::New(env->isolate(), val);
-    // v->SetAlignedPointerInInternalField(val);
-    info.GetReturnValue().Set(v);
-    return;
-  }  
+  struct uniqtype *outermost = static_cast<struct uniqtype*>(
+    info.This()->GetAlignedPointerFromInternalField(1));
+  void *obj = DEMANGLE_POINTER_INTERNAL(info.This()->GetAlignedPointerFromInternalField(0));
+
+  if (!outermost) return;
+  Dl_info i = dladdr_with_cache(outermost);
+  if (i.dli_sname)
+  {
+    char *names_name = strdup(i.dli_sname);
+    String::Utf8Value key(property);
+    
+    names_name = (char*) realloc(names_name, strlen(names_name) + sizeof "_subobj_names" + 1 /* HACK: necessary? */);
+    strcat(names_name, "_subobj_names");
+    void *handle = dlopen(i.dli_fname, RTLD_NOW | RTLD_NOLOAD);
+    if (handle)
+    {
+      char **names_name_array = static_cast<char **>(dlsym(handle, names_name));
+      if (names_name_array)
+      {
+        /* Linear-search for a field named `key`. */
+        for (char **p_name = names_name_array; *p_name; ++p_name)
+        {
+          const char *name = *p_name;
+          unsigned index = p_name - names_name_array;
+          if (0 == strcmp(name, *key))
+          {
+            Local<Value> subobj = v8_get_object(env, (char*) obj + outermost->contained[index].offset, 
+              outermost->contained[index].ptr, NULL);
+            info.GetReturnValue().Set(subobj);
+            break; // success!
+          }
+          else {} // name doesn't match
+        } // end for
+      }
+      else
+      {
+        /* We have no names array, so bail */
+      }
+    }
+    else // handle is null
+    {
+      assert(false); // this shouldn't happen
+    }
+    
+    dlclose(handle); // decrement refcount
+    free(names_name);
+  } // else no dli_sname -- shouldn't happen
+  
   // Not found.  Fetch from prototype.
-  
-
 }
 void AllocsStructSetter(Local<String> property,
                         Local<Value> value,
@@ -302,11 +339,13 @@ void AllocsStructDeleter(Local<String> property,
                          const PropertyCallbackInfo<Boolean>& info) {
 }
 void AllocsStructEnumerator(const PropertyCallbackInfo<Array>& info) {
+  Environment* env = Environment::GetCurrent(info.GetIsolate());
   struct uniqtype *outermost = static_cast<struct uniqtype*>(
     info.This()->GetAlignedPointerFromInternalField(1));
   /* To get the subobject names, we use dladdr to get the uniqtype's 
    * canonical symbol name, then use dlsym to look for _subobj_names. */
   if (!outermost) return;
+  int size = outermost->nmemb;
   Dl_info i = dladdr_with_cache(outermost);
   if (i.dli_sname)
   {
@@ -316,13 +355,25 @@ void AllocsStructEnumerator(const PropertyCallbackInfo<Array>& info) {
     void *handle = dlopen(i.dli_fname, RTLD_NOW | RTLD_NOLOAD);
     assert(handle);
     void *found = dlsym(handle, names_name);
+    Local<Array> allMembs = Array::New(env->isolate(), size);
     if (found)
     {
-      assert(false);
+      for (int i = 0; i < size; ++i)
+      {
+        const char *str = ((char **) found)[i];
+        allMembs->Set(i, String::NewFromUtf8(env->isolate(), str, String::kNormalString, strlen(str)));
+      }
+      info.GetReturnValue().Set(allMembs);
     }
     else
     {
-      assert(false);
+      for (unsigned i = 0; i < (unsigned) size; ++i)
+      {
+        char buf[1 + (sizeof (unsigned) * 3) + 1]; /* '_' + log10 uint_max + '\0' */
+        snprintf(buf, sizeof buf, "_%u", i);
+        allMembs->Set(i, String::NewFromUtf8(env->isolate(), buf, String::kNormalString, strlen(buf)));
+        info.GetReturnValue().Set(allMembs);
+      }
     }
     free(names_name);
     dlclose(handle); // decrement refcount
@@ -344,6 +395,38 @@ void AllocsArrayDeleter(uint32_t index,
                         const PropertyCallbackInfo<Boolean>& info) {
 }
 void AllocsArrayEnumerator(const PropertyCallbackInfo<Array>& info) {
+}
+void AllocsBaseGetter(uint32_t index,
+                       const PropertyCallbackInfo<Value>& info) {}
+
+void AllocsBaseSetter(uint32_t index,
+                       Local<Value> value,
+                       const PropertyCallbackInfo<Value>& info) {}
+
+void AllocsBaseQuery(uint32_t index,
+                      const PropertyCallbackInfo<Integer>& info) {}
+
+void AllocsBaseDeleter(uint32_t index,
+                        const PropertyCallbackInfo<Boolean>& info) {}
+
+void AllocsBaseEnumerator(const PropertyCallbackInfo<Array>& info) {}
+
+void AllocsBasePrinter(const FunctionCallbackInfo<Value>& info)
+{
+  Environment* env = Environment::GetCurrent(info.GetIsolate());
+  void *obj = DEMANGLE_POINTER_INTERNAL(info.This()->GetAlignedPointerFromInternalField(0));
+  assert(info.This()->IsObject());
+  Local<Object> native = info.This()->ToObject();
+  assert(IS_NATIVE_OBJECT(native));
+  struct uniqtype *t = static_cast<struct uniqtype *>(native->GetAlignedPointerFromInternalField(1));
+  assert(t);
+  /* Make a V8 primitive from the value, and run "inspect" on that. 
+   * But how? It's not an object. Answer: call into node's util.inspect.
+   * This is defined in JavaScript! How can we link to it? 
+   * I don't yet know, but since inspectors are allowed to return
+   * another Object, just try returning the value we got. */
+  Local<Value> prim = v8_make_value(env, obj, t);
+  info.GetReturnValue().Set(prim);
 }
 
 void AllocsFunctionPrinter(const FunctionCallbackInfo<Value>& args) {
@@ -501,10 +584,6 @@ Local<Value> v8_get_object(Environment *env, void *ptr,
     struct uniqtype *outermost, 
     struct uniqtype **out_innermost)
 {
-  /* If the object that we point to is a primitive, we will
-   * fail but return a lower bound. The caller can then 
-   * fall back at creating a primitive, using the lower bound
-   * to decode it. */
 
   struct uniqtype *found = v8_get_outermost_uniqtype(ptr);
   // If we succeeded, we either have an object or a primitive. 
@@ -519,7 +598,7 @@ Local<Value> v8_get_object(Environment *env, void *ptr,
   // -- we're undefined if there was a bound and we fail
   if (!success) return /*outermost ? Undefined(env->isolate()).As<Value>() : */ v8_get_object_typeless(env, ptr); // Undefined(env->isolate());
 
-  return v8_get_object_with_type(env, ptr, outermost);
+  return v8_get_object_with_type(env, ptr, outermost ? outermost : found);
 }
 
 Local<Value> v8_get_object_typeless(Environment *env, void *ptr)
@@ -542,6 +621,21 @@ Local<Value> v8_get_object_typeless(Environment *env, void *ptr)
 Local<Value> v8_get_object_with_type(Environment *env, void *ptr, 
     struct uniqtype *t)
 {
+  /* Handling of primitives:
+   * 
+   * We used to say that
+   * 
+   * "If the object that we point to is a primitive, we will
+   * fail but return a lower bound. The caller can then 
+   * fall back at creating a primitive, using the lower bound
+   * to decode it."
+   * 
+   * but that doesn't handle mutation of primitives.
+   * Instead we want to say:
+   * 
+   * mutable primitives are objects that "behave" like built-in number objects.
+   *
+   */
   assert(t);
     /* previously we did: 
        
@@ -576,6 +670,7 @@ Local<Value> v8_get_object_with_type(Environment *env, void *ptr,
       obj->SetAlignedPointerInInternalField(0, MANGLE_POINTER_INTERNAL(ptr));
       /* Set another internal pointer field to the upper bound. */
       obj->SetAlignedPointerInInternalField(1, t);
+      return obj;
     }
     else if (t->is_array && UNIQTYPE_IS_POINTER_TYPE(UNIQTYPE_POINTEE_TYPE(t)))
     {
@@ -591,6 +686,7 @@ Local<Value> v8_get_object_with_type(Environment *env, void *ptr,
       obj->SetAlignedPointerInInternalField(0, MANGLE_POINTER_INTERNAL(ptr));
       /* Set another internal pointer field to the upper bound. */
       obj->SetAlignedPointerInInternalField(1, t);
+      return obj;
     }
     else if (UNIQTYPE_IS_SUBPROGRAM(t))
     {
@@ -607,13 +703,27 @@ Local<Value> v8_get_object_with_type(Environment *env, void *ptr,
       obj->SetAlignedPointerInInternalField(1, t);
       return obj;
     }
+    else if (UNIQTYPE_IS_BASE(t))
+    {
+      /* Create a mutable base object. */
+      Local<ObjectTemplate> base_l = Local<ObjectTemplate>::New(env->isolate(), allocs_base_template);
+      Local<Object> obj = base_l->NewInstance();
+      /* Set its internal pointer field to the address of the prim. */
+      obj->SetAlignedPointerInInternalField(0, MANGLE_POINTER_INTERNAL(ptr));
+      /* Set another internal pointer field to the upper bound. */
+      obj->SetAlignedPointerInInternalField(1, t);
+      return obj;
+     }
     else
     {
-        // we fail, but passing the upper bound (also lower bound, since it's primitive)
-        // of what's on the end of the pointer
-        // if (out_innermost) *out_innermost = t;
-        return Undefined(env->isolate());
+      // we fail, but passing the upper bound (also lower bound, since it's primitive)
+      // of what's on the end of the pointer
+      // if (out_innermost) *out_innermost = t;
+      return Undefined(env->isolate());
     }
+    
+    // end of case split
+    assert(false);
 }
 ffi_type *ffi_type_for_uniqtype(struct uniqtype *t)
 {
@@ -627,8 +737,9 @@ ffi_type *ffi_type_for_uniqtype(struct uniqtype *t)
   assert(false);
 }
 
-Local<Value> v8_make_value(Environment *env, ffi_arg *p_val, struct uniqtype *t)
+Local<Value> v8_make_value(Environment *env, void *p_val_raw, struct uniqtype *t)
 {
+  ffi_arg *p_val = static_cast<ffi_arg *>(p_val_raw);
   if (!t)
   {
     /* guesswork! */

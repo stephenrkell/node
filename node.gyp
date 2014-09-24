@@ -337,9 +337,9 @@
 			# we need -fno-strict-aliasing to use the persistent reinterpret_cast safely
 			'cflags_cc': [ '-fno-strict-aliasing' ],
             'ldflags': [ 
-                        '-Wl,--wrap,malloc', '-Wl,--wrap,calloc', '-Wl,--wrap,realloc', 
-                         '-Wl,--wrap,free', '-Wl,--wrap,memalign', '-Wl,--wrap,posix_memalign',
-                         '-Wl,--wrap,malloc_usable_size',
+#                        '-Wl,--wrap,malloc', '-Wl,--wrap,calloc', '-Wl,--wrap,realloc', 
+#                         '-Wl,--wrap,free', '-Wl,--wrap,memalign', '-Wl,--wrap,posix_memalign',
+#                         '-Wl,--wrap,malloc_usable_size',
                          # these are necessary s.t. dynamically-linked refs to malloc,
                          # from libraries (e.g. from libstdc++'s operator new)
                          # get our executable's malloc.
@@ -354,9 +354,10 @@
 # -- the Right Way to do this is to compile our code with allocsc++, 
 # which would do this rewrite of the undef'd symbol name. But allocsc++
 # is not there yet. 
-'-Wl,--defsym,__uniqtype____FUN_FROM___FUN_TO_unsigned_long_int=__uniqtype____FUN_FROM___FUN_TO_uint\$$64'
+#'-Wl,--defsym,__uniqtype____FUN_FROM___FUN_TO_unsigned_long_int=__uniqtype____FUN_FROM___FUN_TO_uint\$$64'
  ],
-            'libraries': [ '-Bstatic', '-lallocs_exe', '-Bdynamic', '-lffi' ],
+            #'libraries': [ '-Bstatic', '-lallocs_exe', '-Bdynamic', '-lffi' ],
+            'libraries': [ '-lallocs', '-lffi' ],
             #'libraries': [ '-lallocs_preload', '-lffi' ],
           }
         ],
