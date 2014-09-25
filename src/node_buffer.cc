@@ -353,7 +353,7 @@ void Fill(const FunctionCallbackInfo<Value>& args) {
     return;
   }
 
-  String::Utf8Value at(args[0]);
+  node::Utf8Value at(args[0]);
   size_t at_length = at.length();
 
   // optimize single ascii character case
@@ -572,26 +572,6 @@ void WriteDoubleBE(const FunctionCallbackInfo<Value>& args) {
 }
 
 
-void ToArrayBuffer(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args.GetIsolate());
-  HandleScope scope(env->isolate());
-
-  ARGS_THIS(args.This());
-  void* adata = malloc(obj_length);
-
-  if (adata == NULL) {
-    FatalError("node::Buffer::ToArrayBuffer("
-        "const FunctionCallbackInfo<v8::Value>&)",
-        "Out Of Memory");
-  }
-
-  memcpy(adata, obj_data, obj_length);
-
-  Local<ArrayBuffer> abuf = ArrayBuffer::New(env->isolate(), adata, obj_length);
-  args.GetReturnValue().Set(abuf);
-}
-
-
 void ByteLength(const FunctionCallbackInfo<Value> &args) {
   Environment* env = Environment::GetCurrent(args.GetIsolate());
   HandleScope scope(env->isolate());
@@ -679,8 +659,6 @@ void SetupBufferJS(const FunctionCallbackInfo<Value>& args) {
   NODE_SET_METHOD(proto, "writeFloatBE", WriteFloatBE);
   NODE_SET_METHOD(proto, "writeFloatLE", WriteFloatLE);
 
-  NODE_SET_METHOD(proto, "toArrayBuffer", ToArrayBuffer);
-
   NODE_SET_METHOD(proto, "copy", Copy);
   NODE_SET_METHOD(proto, "fill", Fill);
 
@@ -693,12 +671,15 @@ void SetupBufferJS(const FunctionCallbackInfo<Value>& args) {
 
   Local<Object> internal = args[1].As<Object>();
 
-  internal->Set(env->byte_length_string(),
-                FunctionTemplate::New(
-                    env->isolate(), ByteLength)->GetFunction());
-  internal->Set(env->compare_string(),
-                FunctionTemplate::New(
-                    env->isolate(), Compare)->GetFunction());
+  Local<Function> byte_length = FunctionTemplate::New(
+                    env->isolate(), ByteLength)->GetFunction();
+  byte_length->SetName(env->byte_length_string());
+  internal->Set(env->byte_length_string(), byte_length);
+
+  Local<Function> compare = FunctionTemplate::New(
+                    env->isolate(), Compare)->GetFunction();
+  compare->SetName(env->compare_string());
+  internal->Set(env->compare_string(), compare);
 }
 
 

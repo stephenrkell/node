@@ -129,7 +129,6 @@
         'src/node.h',
         'src/node_buffer.h',
         'src/node_constants.h',
-        'src/node_contextify.h',
         'src/node_file.h',
         'src/node_http_parser.h',
         'src/node_internals.h',
@@ -150,6 +149,7 @@
         'src/tree.h',
         'src/util.h',
         'src/util-inl.h',
+        'src/util.cc',
         'deps/http_parser/http_parser.h',
         '<(SHARED_INTERMEDIATE_DIR)/node_natives.h',
         # javascript files to make for an even more pleasant IDE experience
@@ -185,7 +185,20 @@
                 './deps/openssl/openssl.gyp:openssl',
 
                 # For tests
-                './deps/openssl/openssl.gyp:openssl-cli'
+                './deps/openssl/openssl.gyp:openssl-cli',
+              ],
+              # Do not let unused OpenSSL symbols to slip away
+              'xcode_settings': {
+                'OTHER_LDFLAGS': [
+                  '-Wl,-force_load,<(PRODUCT_DIR)/libopenssl.a',
+                ],
+              },
+              'conditions': [
+                ['OS in "linux freebsd"', {
+                  'ldflags': [
+                    '-Wl,--whole-archive <(PRODUCT_DIR)/libopenssl.a -Wl,--no-whole-archive',
+                  ],
+                }],
               ],
             }]]
         }, {
@@ -264,6 +277,11 @@
         } ],
         [ 'v8_postmortem_support=="true"', {
           'dependencies': [ 'deps/v8/tools/gyp/v8.gyp:postmortem-metadata' ],
+          'xcode_settings': {
+            'OTHER_LDFLAGS': [
+              '-Wl,-force_load,<(V8_BASE)',
+            ],
+          },
         }],
         [ 'node_shared_v8=="false"', {
           'sources': [
@@ -304,6 +322,9 @@
           'defines': [ '__POSIX__' ],
         }],
         [ 'OS=="mac"', {
+          # linking Corefoundation is needed since certain OSX debugging tools
+          # like Instruments require it for some features
+          'libraries': [ '-framework CoreFoundation' ],
           'defines!': [
             'PLATFORM="mac"',
           ],
@@ -362,7 +383,7 @@
           }
         ],
         [
-          'OS=="linux" and node_shared_v8=="false"', {
+          'OS in "linux freebsd" and node_shared_v8=="false"', {
             'ldflags': [
               '-Wl,--whole-archive <(V8_BASE) -Wl,--no-whole-archive',
             ],

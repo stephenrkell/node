@@ -53,8 +53,12 @@ Use `nc` to connect to a UNIX domain socket server:
 ## net.connect(options, [connectionListener])
 ## net.createConnection(options, [connectionListener])
 
-Constructs a new socket object and opens the socket to the given location.
+A factory method, which returns a new ['net.Socket'](#net_class_net_socket)
+and connects to the supplied address and port.
+
 When the socket is established, the ['connect'][] event will be emitted.
+
+Has the same events as ['net.Socket'](#net_class_net_socket).
 
 For TCP sockets, `options` argument should be an object which specifies:
 
@@ -111,12 +115,16 @@ Creates a TCP connection to `port` on `host`. If `host` is omitted,
 The `connectListener` parameter will be added as an listener for the
 ['connect'][] event.
 
+Is a factory method which returns a new ['net.Socket'](#net_class_net_socket).
+
 ## net.connect(path, [connectListener])
 ## net.createConnection(path, [connectListener])
 
 Creates unix socket connection to `path`.
 The `connectListener` parameter will be added as an listener for the
 ['connect'][] event.
+
+A factory method which returns a new ['net.Socket'](#net_class_net_socket).
 
 ## Class: net.Server
 
@@ -200,13 +208,42 @@ This function is asynchronous.  When the server has been bound,
 the last parameter `callback` will be added as an listener for the
 ['listening'][] event.
 
+### server.listen(options, [callback])
+
+* `options` {Object} - Required. Supports the following properties:
+  * `port` {Number} - Optional.
+  * `host` {String} - Optional.
+  * `backlog` {Number} - Optional.
+  * `path` {String} - Optional.
+  * `exclusive` {Boolean} - Optional.
+* `callback` {Function} - Optional.
+
+The `port`, `host`, and `backlog` properties of `options`, as well as the
+optional callback function, behave as they do on a call to
+[server.listen(port, \[host\], \[backlog\], \[callback\])
+](#net_server_listen_port_host_backlog_callback). Alternatively, the `path`
+option can be used to specify a UNIX socket.
+
+If `exclusive` is `false` (default), then cluster workers will use the same
+underlying handle, allowing connection handling duties to be shared. When
+`exclusive` is `true`, the handle is not shared, and attempted port sharing
+results in an error. An example which listens on an exclusive port is
+shown below.
+
+    server.listen({
+      host: 'localhost',
+      port: 80,
+      exclusive: true
+    });
+
 ### server.close([callback])
 
 Stops the server from accepting new connections and keeps existing
 connections. This function is asynchronous, the server is finally
 closed when all connections are ended and the server emits a `'close'`
 event. Optionally, you can pass a callback to listen for the `'close'`
-event.
+event. If present, the callback is invoked with any potential error
+as the first and only argument.
 
 ### server.address()
 
@@ -447,6 +484,10 @@ the socket is `ref`d calling `ref` again will have no effect.
 
 The string representation of the remote IP address. For example,
 `'74.125.127.100'` or `'2001:4860:a005::68'`.
+
+### socket.remoteFamily
+
+The string representation of the remote IP family. `'IPv4'` or `'IPv6'`.
 
 ### socket.remotePort
 

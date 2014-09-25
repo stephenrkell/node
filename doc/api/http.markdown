@@ -489,11 +489,19 @@ upload a file with a POST request, then write to the `ClientRequest` object.
 
 Example:
 
+    var postData = querystring.stringify({
+      'msg' : 'Hello World!'
+    });
+
     var options = {
       hostname: 'www.google.com',
       port: 80,
       path: '/upload',
-      method: 'POST'
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': postData.length
+      }
     };
 
     var req = http.request(options, function(res) {
@@ -510,8 +518,7 @@ Example:
     });
 
     // write data to request body
-    req.write('data\n');
-    req.write('data\n');
+    req.write(postData);
     req.end();
 
 Note that in the example `req.end()` was called. With `http.request()` one
@@ -849,7 +856,7 @@ the client should send the request body.
 
 Flush the request headers.
 
-For effiency reasons, node.js normally buffers the request headers until you
+For efficiency reasons, node.js normally buffers the request headers until you
 call `request.end()` or write the first chunk of request data.  It then tries
 hard to pack the request headers and data into a single TCP packet.
 

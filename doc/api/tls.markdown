@@ -90,7 +90,7 @@ This is achieved by randomly generating a key pair for key-agreement on every
 handshake (in contrary to the same key for all sessions). Methods implementing
 this technique, thus offering Perfect Forward Secrecy, are called "ephemeral".
 
-Currently two methods are commonly used to achieve Perfect Forward Secrecy (note 
+Currently two methods are commonly used to achieve Perfect Forward Secrecy (note
 the character "E" appended to the traditional abbreviations):
 
   * [DHE] - An ephemeral version of the Diffie Hellman key-agreement protocol.
@@ -122,12 +122,12 @@ automatically set as a listener for the [secureConnection][] event.  The
     the `key`, `cert` and `ca` options.)
 
   - `key`: A string or `Buffer` containing the private key of the server in
-    PEM format. (Required)
+    PEM format. (Could be an array of keys). (Required)
 
   - `passphrase`: A string of passphrase for the private key or pfx.
 
   - `cert`: A string or `Buffer` containing the certificate key of the server in
-    PEM format. (Required)
+    PEM format. (Could be an array of certs). (Required)
 
   - `ca`: An array of strings or `Buffer`s of trusted certificates in PEM
     format. If this is omitted several well known "root" CAs will be used,
@@ -142,19 +142,21 @@ automatically set as a listener for the [secureConnection][] event.  The
     conjunction with the `honorCipherOrder` option described below to
     prioritize the non-CBC cipher.
 
-    Defaults to `ECDHE-RSA-AES128-SHA256:AES128-GCM-SHA256:RC4:HIGH:!MD5:!aNULL:!EDH`.
-    Consult the [OpenSSL cipher list format documentation] for details on the
-    format.
+    Defaults to
+    `ECDHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA256:AES128-GCM-SHA256:RC4:HIGH:!MD5:!aNULL`.
+    Consult the [OpenSSL cipher list format documentation] for details
+    on the format.
 
-    `ECDHE-RSA-AES128-SHA256` and `AES128-GCM-SHA256` are TLS v1.2 ciphers and
-    used when node.js is linked against OpenSSL 1.0.1 or newer, such as the
-    bundled version of OpenSSL.  Note that it is still possible for a TLS v1.2
-    client to negotiate a weaker cipher unless `honorCipherOrder` is enabled.
+    `ECDHE-RSA-AES128-SHA256`, `DHE-RSA-AES128-SHA256` and
+    `AES128-GCM-SHA256` are TLS v1.2 ciphers and used when node.js is
+    linked against OpenSSL 1.0.1 or newer, such as the bundled version
+    of OpenSSL.  Note that it is still possible for a TLS v1.2 client
+    to negotiate a weaker cipher unless `honorCipherOrder` is enabled.
 
     `RC4` is used as a fallback for clients that speak on older version of
     the TLS protocol.  `RC4` has in recent years come under suspicion and
     should be considered compromised for anything that is truly sensitive.
-    It is speculated that state-level actors posess the ability to break it.
+    It is speculated that state-level actors possess the ability to break it.
 
     **NOTE**: Previous revisions of this section suggested `AES256-SHA` as an
     acceptable cipher. Unfortunately, `AES256-SHA` is a CBC cipher and therefore
@@ -164,6 +166,10 @@ automatically set as a listener for the [secureConnection][] event.  The
     or false to disable ECDH.
 
     Defaults to `prime256v1`. Consult [RFC 4492] for more details.
+
+  - `dhparam`: DH parameter file to use for DHE key agreement. Use
+    `openssl dhparam` command to create it. If the file is invalid to
+    load, it is silently discarded.
 
   - `handshakeTimeout`: Abort the connection if the SSL/TLS handshake does not
     finish in this many milliseconds. The default is 120 seconds.
@@ -189,6 +195,10 @@ automatically set as a listener for the [secureConnection][] event.  The
   - `rejectUnauthorized`: If `true` the server will reject any connection
     which is not authorized with the list of supplied CAs. This option only
     has an effect if `requestCert` is `true`. Default: `false`.
+
+  - `checkServerIdentity(servername, cert)`: Provide an override for checking
+    server's hostname against the certificate. Should return an error if verification
+    fails. Return `undefined` if passing.
 
   - `NPNProtocols`: An array or `Buffer` of possible NPN protocols. (Protocols
     should be ordered by their priority).
@@ -297,12 +307,12 @@ Creates a new client connection to the given `port` and `host` (old API) or
     CA certs of the client in PFX or PKCS12 format.
 
   - `key`: A string or `Buffer` containing the private key of the client in
-    PEM format.
+    PEM format. (Could be an array of keys).
 
   - `passphrase`: A string of passphrase for the private key or pfx.
 
   - `cert`: A string or `Buffer` containing the certificate key of the client in
-    PEM format.
+    PEM format. (Could be an array of certs).
 
   - `ca`: An array of strings or `Buffer`s of trusted certificates in PEM
     format. If this is omitted several well known "root" CAs will be used,
@@ -339,7 +349,7 @@ Here is an example of a client of echo server as described previously:
       // These are necessary only if using the client certificate authentication
       key: fs.readFileSync('client-key.pem'),
       cert: fs.readFileSync('client-cert.pem'),
-    
+
       // This is necessary only if the server uses the self-signed certificate
       ca: [ fs.readFileSync('server-cert.pem') ]
     };
@@ -414,6 +424,36 @@ Construct a new TLSSocket object from existing TCP socket.
   - `requestOCSP`: Optional, if `true` - OCSP status request extension would
     be added to client hello, and `OCSPResponse` event will be emitted on socket
     before establishing secure communication
+
+
+## tls.createSecureContext(details)
+
+Stability: 0 - Deprecated. Use tls.createSecureContext instead.
+
+Creates a credentials object, with the optional details being a
+dictionary with keys:
+
+* `pfx` : A string or buffer holding the PFX or PKCS12 encoded private
+  key, certificate and CA certificates
+* `key` : A string holding the PEM encoded private key
+* `passphrase` : A string of passphrase for the private key or pfx
+* `cert` : A string holding the PEM encoded certificate
+* `ca` : Either a string or list of strings of PEM encoded CA
+  certificates to trust.
+* `crl` : Either a string or list of strings of PEM encoded CRLs
+  (Certificate Revocation List)
+* `ciphers`: A string describing the ciphers to use or exclude.
+  Consult
+  <http://www.openssl.org/docs/apps/ciphers.html#CIPHER_LIST_FORMAT>
+  for details on the format.
+* `honorCipherOrder` : When choosing a cipher, use the server's preferences
+  instead of the client preferences. For further details see `tls` module
+  documentation.
+
+If no 'ca' details are given, then node.js will use the default
+publicly trusted list of CAs as given in
+<http://mxr.mozilla.org/mozilla/source/security/nss/lib/ckfw/builtins/certdata.txt>.
+
 
 ## tls.createSecurePair([context], [isServer], [requestCert], [rejectUnauthorized])
 
@@ -543,8 +583,9 @@ Typical flow:
 5. Client validates the response and either destroys socket or performs a
    handshake.
 
-NOTE: `issuer` could be null, if certficiate is self-signed or if issuer is not
-in the root certificates list. (You could provide an issuer via `ca` option.)
+NOTE: `issuer` could be null, if the certificate is self-signed or if the issuer
+is not in the root certificates list. (You could provide an issuer via `ca`
+option.)
 
 NOTE: adding this event listener will have an effect only on connections
 established after addition of event listener.
@@ -581,7 +622,8 @@ more information.
 
 Add secure context that will be used if client request's SNI hostname is
 matching passed `hostname` (wildcards can be used). `context` can contain
-`key`, `cert` and `ca`.
+`key`, `cert`, `ca` and/or any other properties from `tls.createSecureContext`
+`options` argument.
 
 ### server.maxConnections
 
@@ -740,6 +782,10 @@ object with three properties, e.g.
 
 The string representation of the remote IP address. For example,
 `'74.125.127.100'` or `'2001:4860:a005::68'`.
+
+### tlsSocket.remoteFamily
+
+The string representation of the remote IP family. `'IPv4'` or `'IPv6'`.
 
 ### tlsSocket.remotePort
 

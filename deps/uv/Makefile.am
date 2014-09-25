@@ -17,7 +17,7 @@ ACLOCAL_AMFLAGS = -I m4
 AM_CPPFLAGS = -I$(top_srcdir)/include \
               -I$(top_srcdir)/src
 
-include_HEADERS=include/uv.h include/uv-errno.h include/uv-version.h
+include_HEADERS=include/uv.h include/uv-errno.h include/uv-threadpool.h include/uv-version.h
 
 CLEANFILES =
 
@@ -28,6 +28,7 @@ libuv_la_SOURCES = src/fs-poll.c \
                    src/heap-inl.h \
                    src/inet.c \
                    src/queue.h \
+                   src/threadpool.c \
                    src/uv-common.c \
                    src/uv-common.h \
                    src/version.c
@@ -51,6 +52,7 @@ libuv_la_SOURCES += src/win/async.c \
                     src/win/fs-event.c \
                     src/win/fs.c \
                     src/win/getaddrinfo.c \
+                    src/win/getnameinfo.c \
                     src/win/handle.c \
                     src/win/handle-inl.h \
                     src/win/internal.h \
@@ -66,7 +68,6 @@ libuv_la_SOURCES += src/win/async.c \
                     src/win/stream-inl.h \
                     src/win/tcp.c \
                     src/win/thread.c \
-                    src/win/threadpool.c \
                     src/win/timer.c \
                     src/win/tty.c \
                     src/win/udp.c \
@@ -86,6 +87,7 @@ libuv_la_SOURCES += src/unix/async.c \
                    src/unix/dl.c \
                    src/unix/fs.c \
                    src/unix/getaddrinfo.c \
+                   src/unix/getnameinfo.c \
                    src/unix/internal.h \
                    src/unix/loop-watcher.c \
                    src/unix/loop.c \
@@ -97,7 +99,6 @@ libuv_la_SOURCES += src/unix/async.c \
                    src/unix/stream.c \
                    src/unix/tcp.c \
                    src/unix/thread.c \
-                   src/unix/threadpool.c \
                    src/unix/timer.c \
                    src/unix/tty.c \
                    src/unix/udp.c
@@ -138,6 +139,7 @@ test_run_tests_SOURCES = test/blackhole-server.c \
                          test/test-get-loadavg.c \
                          test/test-get-memory.c \
                          test/test-getaddrinfo.c \
+                         test/test-getnameinfo.c \
                          test/test-getsockname.c \
                          test/test-hrtime.c \
                          test/test-idle.c \
@@ -163,6 +165,7 @@ test_run_tests_SOURCES = test/blackhole-server.c \
                          test/test-pipe-server-close.c \
                          test/test-platform-output.c \
                          test/test-poll-close.c \
+                         test/test-poll-closesocket.c \
                          test/test-poll.c \
                          test/test-process-title.c \
                          test/test-ref.c \
@@ -193,6 +196,7 @@ test_run_tests_SOURCES = test/blackhole-server.c \
                          test/test-tcp-write-to-half-open-connection.c \
                          test/test-tcp-writealot.c \
                          test/test-tcp-try-write.c \
+                         test/test-tcp-write-queue-order.c \
                          test/test-thread.c \
                          test/test-threadpool-cancel.c \
                          test/test-threadpool.c \
@@ -211,6 +215,8 @@ test_run_tests_SOURCES = test/blackhole-server.c \
                          test/test-udp-open.c \
                          test/test-udp-options.c \
                          test/test-udp-send-and-recv.c \
+                         test/test-udp-send-immediate.c \
+                         test/test-udp-try-send.c \
                          test/test-walk-handles.c \
                          test/test-watcher-cross-stop.c
 test_run_tests_LDADD = libuv.la
@@ -224,7 +230,7 @@ test_run_tests_SOURCES += test/runner-unix.c \
 endif
 
 if AIX
-test_run_tests_CFLAGS += -D_ALL_SOURCE -D_XOPEN_SOURCE=500
+test_run_tests_CFLAGS += -D_ALL_SOURCE -D_XOPEN_SOURCE=500 -D_LINUX_SOURCE_COMPAT
 endif
 
 if SUNOS
@@ -233,13 +239,15 @@ endif
 
 
 if AIX
-libuv_la_CFLAGS += -D_ALL_SOURCE -D_XOPEN_SOURCE=500
+libuv_la_CFLAGS += -D_ALL_SOURCE -D_XOPEN_SOURCE=500 -D_LINUX_SOURCE_COMPAT
 libuv_la_SOURCES += src/unix/aix.c
 endif
 
 if ANDROID
-include_HEADERS += include/android-ifaddrs.h
-libuv_la_SOURCES += src/unix/android-ifaddrs.c
+include_HEADERS += include/android-ifaddrs.h \
+                   include/pthread-fixes.h
+libuv_la_SOURCES += src/unix/android-ifaddrs.c \
+                    src/unix/pthread-fixes.c
 endif
 
 if DARWIN

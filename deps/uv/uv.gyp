@@ -61,11 +61,13 @@
         'include/uv.h',
         'include/tree.h',
         'include/uv-errno.h',
+        'include/uv-threadpool.h',
         'include/uv-version.h',
         'src/fs-poll.c',
         'src/heap-inl.h',
         'src/inet.c',
         'src/queue.h',
+        'src/threadpool.c',
         'src/uv-common.c',
         'src/uv-common.h',
         'src/version.c'
@@ -86,6 +88,7 @@
             'src/win/fs.c',
             'src/win/fs-event.c',
             'src/win/getaddrinfo.c',
+            'src/win/getnameinfo.c',
             'src/win/handle.c',
             'src/win/handle-inl.h',
             'src/win/internal.h',
@@ -102,7 +105,6 @@
             'src/win/stream-inl.h',
             'src/win/tcp.c',
             'src/win/tty.c',
-            'src/win/threadpool.c',
             'src/win/timer.c',
             'src/win/udp.c',
             'src/win/util.c',
@@ -113,11 +115,11 @@
           ],
           'link_settings': {
             'libraries': [
-              '-ladvapi32.lib',
-              '-liphlpapi.lib',
-              '-lpsapi.lib',
-              '-lshell32.lib',
-              '-lws2_32.lib'
+              '-ladvapi32',
+              '-liphlpapi',
+              '-lpsapi',
+              '-lshell32',
+              '-lws2_32'
             ],
           },
         }, { # Not Windows i.e. POSIX
@@ -135,12 +137,14 @@
             'include/uv-sunos.h',
             'include/uv-darwin.h',
             'include/uv-bsd.h',
+            'include/uv-aix.h',
             'src/unix/async.c',
             'src/unix/atomic-ops.h',
             'src/unix/core.c',
             'src/unix/dl.c',
             'src/unix/fs.c',
             'src/unix/getaddrinfo.c',
+            'src/unix/getnameinfo.c',
             'src/unix/internal.h',
             'src/unix/loop.c',
             'src/unix/loop-watcher.c',
@@ -152,7 +156,6 @@
             'src/unix/stream.c',
             'src/unix/tcp.c',
             'src/unix/thread.c',
-            'src/unix/threadpool.c',
             'src/unix/timer.c',
             'src/unix/tty.c',
             'src/unix/udp.c',
@@ -243,6 +246,7 @@
           'defines': [
             '_ALL_SOURCE',
             '_XOPEN_SOURCE=500',
+            '_LINUX_SOURCE_COMPAT',
           ],
           'link_settings': {
             'libraries': [
@@ -318,6 +322,7 @@
         'test/test-get-currentexe.c',
         'test/test-get-memory.c',
         'test/test-getaddrinfo.c',
+        'test/test-getnameinfo.c',
         'test/test-getsockname.c',
         'test/test-hrtime.c',
         'test/test-idle.c',
@@ -344,6 +349,7 @@
         'test/test-platform-output.c',
         'test/test-poll.c',
         'test/test-poll-close.c',
+        'test/test-poll-closesocket.c',
         'test/test-process-title.c',
         'test/test-ref.c',
         'test/test-run-nowait.c',
@@ -374,6 +380,7 @@
         'test/test-tcp-try-write.c',
         'test/test-tcp-unexpected-read.c',
         'test/test-tcp-read-stop.c',
+        'test/test-tcp-write-queue-order.c',
         'test/test-threadpool.c',
         'test/test-threadpool-cancel.c',
         'test/test-mutexes.c',
@@ -390,6 +397,7 @@
         'test/test-udp-open.c',
         'test/test-udp-options.c',
         'test/test-udp-send-and-recv.c',
+        'test/test-udp-send-immediate.c',
         'test/test-udp-multicast-join.c',
         'test/test-udp-multicast-join6.c',
         'test/test-dlerror.c',
@@ -398,6 +406,7 @@
         'test/test-ip6-addr.c',
         'test/test-udp-multicast-interface.c',
         'test/test-udp-multicast-interface6.c',
+        'test/test-udp-try-send.c',
       ],
       'conditions': [
         [ 'OS=="win"', {
@@ -405,7 +414,7 @@
             'test/runner-win.c',
             'test/runner-win.h'
           ],
-          'libraries': [ 'ws2_32.lib' ]
+          'libraries': [ '-lws2_32' ]
         }, { # POSIX
           'defines': [ '_GNU_SOURCE' ],
           'sources': [
@@ -469,7 +478,7 @@
             'test/runner-win.c',
             'test/runner-win.h',
           ],
-          'libraries': [ 'ws2_32.lib' ]
+          'libraries': [ '-lws2_32' ]
         }, { # POSIX
           'defines': [ '_GNU_SOURCE' ],
           'sources': [

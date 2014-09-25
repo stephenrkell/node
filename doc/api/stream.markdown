@@ -184,7 +184,7 @@ readable.on('data', function(chunk) {
 
 #### Event: 'end'
 
-This event fires when no more data will be provided.
+This event fires when there will be no more data to read.
 
 Note that the `end` event **will not fire** unless the data is
 completely consumed.  This can be done by switching into flowing mode,
@@ -206,6 +206,8 @@ Emitted when the underlying resource (for example, the backing file
 descriptor) has been closed. Not all streams will emit this.
 
 #### Event: 'error'
+
+* {Error Object}
 
 Emitted if there was an error receiving data.
 
@@ -306,6 +308,24 @@ readable.on('data', function(chunk) {
     readable.resume();
   }, 1000);
 })
+```
+
+#### readable.isPaused()
+
+* Return: `Boolean`
+
+This method returns whether or not the `readable` has been **explicitly**
+paused by client code (using `readable.pause()` without a corresponding
+`readable.resume()`).
+
+```javascript
+var readable = new stream.Readable
+
+readable.isPaused() // === false
+readable.pause()
+readable.isPaused() // === true
+readable.resume()
+readable.isPaused() // === false
 ```
 
 #### readable.pipe(destination, [options])
@@ -616,6 +636,8 @@ reader.unpipe(writer);
 ```
 
 #### Event: 'error'
+
+* {Error object}
 
 Emitted if there was an error when writing or piping data.
 
@@ -967,7 +989,7 @@ function SourceWrapper(options) {
       self._source.readStop();
   };
 
-  // When the source ends, we push the EOF-signalling `null` chunk
+  // When the source ends, we push the EOF-signaling `null` chunk
   this._source.onend = function() {
     self.push(null);
   };
@@ -1179,6 +1201,14 @@ This method is prefixed with an underscore because it is internal to
 the class that defines it, and should not be called directly by user
 programs.  However, you **are** expected to override this method in
 your own extension classes.
+
+#### Events: 'finish' and 'end'
+
+The [`finish`][] and [`end`][] events are from the parent Writable
+and Readable classes respectively. The `finish` event is fired after
+`.end()` is called and all chunks have been processed by `_transform`,
+`end` is fired after all data has been output which is after the callback
+in `_flush` has been called.
 
 #### Example: `SimpleProtocol` parser v2
 
@@ -1428,7 +1458,7 @@ the options object.  Setting `objectMode` mid-stream is not safe.
 
 For Duplex streams `objectMode` can be set exclusively for readable or
 writable side with `readableObjectMode` and `writableObjectMode`
-respectivly. These options can be used to implement parsers and
+respectively. These options can be used to implement parsers and
 serializers with Transform streams.
 
 ```javascript
@@ -1510,6 +1540,8 @@ JSONParseStream.prototype._flush = function(cb) {
 [Writable]: #stream_class_stream_writable
 [Duplex]: #stream_class_stream_duplex
 [Transform]: #stream_class_stream_transform
+[`end`]: #stream_event_end
+[`finish`]: #stream_event_finish
 [`_read(size)`]: #stream_readable_read_size_1
 [`_read()`]: #stream_readable_read_size_1
 [_read]: #stream_readable_read_size_1

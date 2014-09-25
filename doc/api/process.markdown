@@ -332,6 +332,29 @@ Returns the current working directory of the process.
 
 An object containing the user environment. See environ(7).
 
+An example of this object looks like:
+
+    { TERM: 'xterm-256color',
+      SHELL: '/usr/local/bin/bash',
+      USER: 'maciej',
+      PATH: '~/.bin/:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin',
+      PWD: '/Users/maciej',
+      EDITOR: 'vim',
+      SHLVL: '1',
+      HOME: '/Users/maciej',
+      LOGNAME: 'maciej',
+      _: '/usr/local/bin/node' }
+
+You can write to this object, but changes won't be reflected outside of your
+process. That means that the following won't work:
+
+    node -e 'process.env.foo = "bar"' && echo $foo
+
+But this will:
+
+    process.env.foo = 'bar';
+    console.log(process.env.foo);
+
 
 ## process.exit([code])
 
@@ -715,5 +738,17 @@ a diff reading, useful for benchmarks and measuring intervals:
       console.log('benchmark took %d nanoseconds', diff[0] * 1e9 + diff[1]);
       // benchmark took 1000000527 nanoseconds
     }, 1000);
+
+
+## process.mainModule
+
+Alternate way to retrieve
+[`require.main`](modules.html#modules_accessing_the_main_module).
+The difference is that if the main module changes at runtime, `require.main`
+might still refer to the original main module in modules that were required
+before the change occurred. Generally it's safe to assume that the two refer
+to the same module.
+
+As with `require.main`, it will be `undefined` if there was no entry script.
 
 [EventEmitter]: events.html#events_class_events_eventemitter

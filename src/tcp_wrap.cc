@@ -50,6 +50,7 @@ using v8::PropertyAttribute;
 using v8::String;
 using v8::Undefined;
 using v8::Value;
+using v8::Boolean;
 
 typedef class ReqWrap<uv_connect_t> ConnectWrap;
 
@@ -83,6 +84,18 @@ void TCPWrap::Initialize(Handle<Object> target,
                                      v8::DEFAULT,
                                      attributes);
 
+  // Init properties
+  t->InstanceTemplate()->Set(String::NewFromUtf8(env->isolate(), "reading"),
+                             Boolean::New(env->isolate(), false));
+  t->InstanceTemplate()->Set(String::NewFromUtf8(env->isolate(), "owner"),
+                             Null(env->isolate()));
+  t->InstanceTemplate()->Set(String::NewFromUtf8(env->isolate(), "onread"),
+                             Null(env->isolate()));
+  t->InstanceTemplate()->Set(String::NewFromUtf8(env->isolate(),
+                                                 "onconnection"),
+                             Null(env->isolate()));
+
+
   NODE_SET_PROTOTYPE_METHOD(t, "close", HandleWrap::Close);
 
   NODE_SET_PROTOTYPE_METHOD(t, "ref", HandleWrap::Ref);
@@ -98,6 +111,9 @@ void TCPWrap::Initialize(Handle<Object> target,
                             StreamWrap::WriteAsciiString);
   NODE_SET_PROTOTYPE_METHOD(t, "writeUtf8String", StreamWrap::WriteUtf8String);
   NODE_SET_PROTOTYPE_METHOD(t, "writeUcs2String", StreamWrap::WriteUcs2String);
+  NODE_SET_PROTOTYPE_METHOD(t,
+                            "writeBinaryString",
+                            StreamWrap::WriteBinaryString);
   NODE_SET_PROTOTYPE_METHOD(t, "writev", StreamWrap::Writev);
 
   NODE_SET_PROTOTYPE_METHOD(t, "open", Open);
@@ -257,7 +273,7 @@ void TCPWrap::Bind(const FunctionCallbackInfo<Value>& args) {
 
   TCPWrap* wrap = Unwrap<TCPWrap>(args.Holder());
 
-  String::Utf8Value ip_address(args[0]);
+  node::Utf8Value ip_address(args[0]);
   int port = args[1]->Int32Value();
 
   sockaddr_in addr;
@@ -278,7 +294,7 @@ void TCPWrap::Bind6(const FunctionCallbackInfo<Value>& args) {
 
   TCPWrap* wrap = Unwrap<TCPWrap>(args.Holder());
 
-  String::Utf8Value ip6_address(args[0]);
+  node::Utf8Value ip6_address(args[0]);
   int port = args[1]->Int32Value();
 
   sockaddr_in6 addr;
@@ -381,7 +397,7 @@ void TCPWrap::Connect(const FunctionCallbackInfo<Value>& args) {
   assert(args[2]->Uint32Value());
 
   Local<Object> req_wrap_obj = args[0].As<Object>();
-  String::Utf8Value ip_address(args[1]);
+  node::Utf8Value ip_address(args[1]);
   int port = args[2]->Uint32Value();
 
   sockaddr_in addr;
@@ -415,7 +431,7 @@ void TCPWrap::Connect6(const FunctionCallbackInfo<Value>& args) {
   assert(args[2]->Uint32Value());
 
   Local<Object> req_wrap_obj = args[0].As<Object>();
-  String::Utf8Value ip_address(args[1]);
+  node::Utf8Value ip_address(args[1]);
   int port = args[2]->Int32Value();
 
   sockaddr_in6 addr;

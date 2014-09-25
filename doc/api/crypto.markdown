@@ -58,6 +58,8 @@ Example:
 
 ## crypto.createCredentials(details)
 
+Stability: 0 - Deprecated. Use [tls.createSecureContext][] instead.
+
 Creates a credentials object, with the optional details being a
 dictionary with keys:
 
@@ -186,8 +188,8 @@ which must be a `'binary'` encoded string or a [buffer](buffer.html).
 
 It is a [stream](stream.html) that is both readable and writable.  The
 written data is used to compute the hash.  Once the writable side of
-the stream is ended, use the `read()` method to get the computed hash
-digest.  The legacy `update` and `digest` methods are also supported.
+the stream is ended, use the `read()` method to get the enciphered
+contents.  The legacy `update` and `final` methods are also supported.
 
 ## crypto.createCipheriv(algorithm, key, iv)
 
@@ -515,6 +517,85 @@ Example (obtaining a shared secret):
     /* alice_secret and bob_secret should be the same */
     console.log(alice_secret == bob_secret);
 
+## crypto.createECDH(curve_name)
+
+Creates a Elliptic Curve (EC) Diffie-Hellman key exchange object using a
+predefined curve specified by `curve_name` string.
+
+## Class: ECDH
+
+The class for creating EC Diffie-Hellman key exchanges.
+
+Returned by `crypto.createECDH`.
+
+### ECDH.generateKeys([encoding[, format]])
+
+Generates private and public EC Diffie-Hellman key values, and returns
+the public key in the specified format and encoding. This key should be
+transferred to the other party.
+
+Format specifies point encoding and can be `'compressed'`, `'uncompressed'`, or
+`'hybrid'`. If no format is provided - the point will be returned in
+`'uncompressed'` format.
+
+Encoding can be `'binary'`, `'hex'`, or `'base64'`. If no encoding is provided,
+then a buffer is returned.
+
+### ECDH.computeSecret(other_public_key, [input_encoding], [output_encoding])
+
+Computes the shared secret using `other_public_key` as the other
+party's public key and returns the computed shared secret. Supplied
+key is interpreted using specified `input_encoding`, and secret is
+encoded using specified `output_encoding`. Encodings can be
+`'binary'`, `'hex'`, or `'base64'`. If the input encoding is not
+provided, then a buffer is expected.
+
+If no output encoding is given, then a buffer is returned.
+
+### ECDH.getPublicKey([encoding[, format]])
+
+Returns the EC Diffie-Hellman public key in the specified encoding and format.
+
+Format specifies point encoding and can be `'compressed'`, `'uncompressed'`, or
+`'hybrid'`. If no format is provided - the point will be returned in
+`'uncompressed'` format.
+
+Encoding can be `'binary'`, `'hex'`, or `'base64'`. If no encoding is provided,
+then a buffer is returned.
+
+### ECDH.getPrivateKey([encoding])
+
+Returns the EC Diffie-Hellman private key in the specified encoding,
+which can be `'binary'`, `'hex'`, or `'base64'`. If no encoding is
+provided, then a buffer is returned.
+
+### ECDH.setPublicKey(public_key, [encoding])
+
+Sets the EC Diffie-Hellman public key. Key encoding can be `'binary'`,
+`'hex'` or `'base64'`. If no encoding is provided, then a buffer is
+expected.
+
+### ECDH.setPrivateKey(private_key, [encoding])
+
+Sets the EC Diffie-Hellman private key. Key encoding can be `'binary'`,
+`'hex'` or `'base64'`. If no encoding is provided, then a buffer is
+expected.
+
+Example (obtaining a shared secret):
+
+    var crypto = require('crypto');
+    var alice = crypto.createECDH('secp256k1');
+    var bob = crypto.createECDH('secp256k1');
+
+    alice.generateKeys();
+    bob.generateKeys();
+
+    var alice_secret = alice.computeSecret(bob.getPublicKey(), null, 'hex');
+    var bob_secret = bob.computeSecret(alice.getPublicKey(), null, 'hex');
+
+    /* alice_secret and bob_secret should be the same */
+    console.log(alice_secret == bob_secret);
+
 ## crypto.pbkdf2(password, salt, iterations, keylen, [digest], callback)
 
 Asynchronous PBKDF2 function.  Applies the selected HMAC digest function
@@ -591,6 +672,41 @@ Exports the encoded public key from the supplied SPKAC.
 
 Exports the encoded challenge associated with the SPKAC.
 
+## crypto.publicEncrypt(public_key, buffer)
+
+Encrypts `buffer` with `public_key`. Only RSA is currently supported.
+
+`public_key` can be an object or a string. If `public_key` is a string, it is
+treated as the key with no passphrase and will use `RSA_PKCS1_OAEP_PADDING`.
+
+`public_key`:
+
+* `key` : A string holding the PEM encoded private key
+* `padding` : An optional padding value, one of the following:
+  * `constants.RSA_NO_PADDING`
+  * `constants.RSA_PKCS1_PADDING`
+  * `constants.RSA_PKCS1_OAEP_PADDING`
+
+NOTE: All paddings are defined in `constants` module.
+
+## crypto.privateDecrypt(private_key, buffer)
+
+Decrypts `buffer` with `private_key`.
+
+`private_key` can be an object or a string. If `private_key` is a string, it is
+treated as the key with no passphrase and will use `RSA_PKCS1_OAEP_PADDING`.
+
+`private_key`:
+
+* `key` : A string holding the PEM encoded private key
+* `passphrase` : An optional string of passphrase for the private key
+* `padding` : An optional padding value, one of the following:
+  * `constants.RSA_NO_PADDING`
+  * `constants.RSA_PKCS1_PADDING`
+  * `constants.RSA_PKCS1_OAEP_PADDING`
+
+NOTE: All paddings are defined in `constants` module.
+
 ## crypto.DEFAULT_ENCODING
 
 The default encoding to use for functions that can take either strings
@@ -636,6 +752,7 @@ temporary measure.
 [createCipher()]: #crypto_crypto_createcipher_algorithm_password
 [createCipheriv()]: #crypto_crypto_createcipheriv_algorithm_key_iv
 [crypto.createDiffieHellman()]: #crypto_crypto_creatediffiehellman_prime_encoding
+[tls.createSecureContext]: tls.html#tls_tls_createsecurecontext_details
 [diffieHellman.setPublicKey()]: #crypto_diffiehellman_setpublickey_public_key_encoding
 [RFC 2412]: http://www.rfc-editor.org/rfc/rfc2412.txt
 [RFC 3526]: http://www.rfc-editor.org/rfc/rfc3526.txt

@@ -28,6 +28,7 @@
 #include "env-inl.h"
 #include "util.h"
 #include "util-inl.h"
+#include "v8-debug.h"
 
 namespace node {
 
@@ -35,6 +36,7 @@ using v8::AccessType;
 using v8::Array;
 using v8::Boolean;
 using v8::Context;
+using v8::Debug;
 using v8::EscapableHandleScope;
 using v8::External;
 using v8::Function;
@@ -244,8 +246,22 @@ class ContextifyContext {
     function_template->InstanceTemplate()->SetInternalFieldCount(1);
     env->set_script_data_constructor_function(function_template->GetFunction());
 
+    NODE_SET_METHOD(target, "runInDebugContext", RunInDebugContext);
     NODE_SET_METHOD(target, "makeContext", MakeContext);
     NODE_SET_METHOD(target, "isContext", IsContext);
+  }
+
+
+  static void RunInDebugContext(const FunctionCallbackInfo<Value>& args) {
+    HandleScope scope(args.GetIsolate());
+    Local<String> script_source(args[0]->ToString());
+    if (script_source.IsEmpty())
+      return;  // Exception pending.
+    Context::Scope context_scope(Debug::GetDebugContext());
+    Local<Script> script = Script::Compile(script_source);
+    if (script.IsEmpty())
+      return;  // Exception pending.
+    args.GetReturnValue().Set(script->Run());
   }
 
 
@@ -414,10 +430,6 @@ class ContextifyContext {
 
     bool success = PersistentToLocal(isolate,
                                      ctx->sandbox_)->Delete(property);
-    if (!success) {
-      success = PersistentToLocal(isolate,
-                                  ctx->proxy_global_)->Delete(property);
-    }
     args.GetReturnValue().Set(success);
   }
 
@@ -650,15 +662,16 @@ class ContextifyScript : public BaseObject {
 
     Local<Value> result;
     if (timeout != -1) {
-      Watchdog wd(timeout);
+      Watchdog wd(env, timeout);
       result = script->Run();
     } else {
       result = script->Run();
     }
 
     if (try_catch.HasCaught() && try_catch.HasTerminated()) {
-      V8::CancelTerminateExecution(args.GetIsolate());
+      V8::CancelTerminateExecution(env->isolate());
       env->ThrowError("Script execution timed out.");
+      try_catch.ReThrow();
       return false;
     }
 

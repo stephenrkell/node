@@ -587,7 +587,7 @@
   };
 
   startup.processKillAndExit = function() {
-    process.exitCode = 0;
+
     process.exit = function(code) {
       if (code || code === 0)
         process.exitCode = code;
@@ -601,6 +601,10 @@
 
     process.kill = function(pid, sig) {
       var err;
+
+      if (typeof pid !== 'number' || !isFinite(pid)) {
+        throw new TypeError('pid must be a number');
+      }
 
       // preserve null signal
       if (0 === sig) {
@@ -666,7 +670,7 @@
       if (isSignal(type)) {
         assert(signalWraps.hasOwnProperty(type));
 
-        if (this.listeners(type).length === 0) {
+        if (NativeModule.require('events').listenerCount(this, type) === 0) {
           signalWraps[type].close();
           delete signalWraps[type];
         }

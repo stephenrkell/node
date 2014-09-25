@@ -1,4 +1,130 @@
-2014.05.02, Version 0.11.25 (Unstable)
+2014.08.08, Version 0.11.28 (Unstable)
+
+Changes since version 0.11.27:
+
+* unix, windows: const-ify handle in uv_udp_getsockname (Rasmus Pedersen)
+
+* windows: use UV_ECANCELED for aborted TCP writes (Saúl Ibarra Corretgé)
+
+* windows: add more required environment variables (Jameson Nash)
+
+* windows: sort environment variables before calling CreateProcess (Jameson
+  Nash)
+
+* unix, windows: move uv_loop_close out of assert (John Firebaugh)
+
+* windows: fix buffer overflow on uv__getnameinfo_work() (lilohuang)
+
+* windows: add uv_backend_timeout (Jameson Nash)
+
+* test: disable tcp_close_accept on Windows (Saúl Ibarra Corretgé)
+
+* windows: read the PATH env var of the child (Alex Crichton)
+
+* include: avoid using C++ 'template' reserved word (Iñaki Baz Castillo)
+
+* include: fix version number (Saúl Ibarra Corretgé)
+
+
+2014.07.32, Version 0.11.27 (Unstable), ffe24f955032d060968ea0289af365006afed55e
+
+Changes since version 0.11.26:
+
+* unix, windows: use the same threadpool implementation (Saúl Ibarra Corretgé)
+
+* unix: use struct sockaddr_storage for target UDP addr (Saúl Ibarra Corretgé)
+
+* doc: add documentation to uv_udp_start_recv (Andrius Bentkus)
+
+* common: use common uv__count_bufs code (Andrius Bentkus)
+
+* unix, win: add send_queue_size and send_queue_count to uv_udp_t (Andrius
+  Bentkus)
+
+* unix, win: add uv_udp_try_send (Andrius Bentkus)
+
+* unix: return UV_EAGAIN if uv_try_write cannot write any data (Saúl Ibarra
+  Corretgé)
+
+* windows: fix compatibility with cygwin pipes (Jameson Nash)
+
+* windows: count queued bytes even if request completed immediately (Saúl
+  Ibarra Corretgé)
+
+* windows: disable CRT debug handler on MinGW32 (Saúl Ibarra Corretgé)
+
+* windows: map ERROR_INVALID_DRIVE to UV_ENOENT (Saúl Ibarra Corretgé)
+
+* unix: try to write immediately in uv_udp_send (Saúl Ibarra Corretgé)
+
+* unix: remove incorrect assert (Saúl Ibarra Corretgé)
+
+* openbsd: avoid requiring privileges for uv_resident_set_memory (Aaron Bieber)
+
+* unix: guarantee write queue cb execution order in streams (Andrius Bentkus)
+
+* img: add logo files (Saúl Ibarra Corretgé)
+
+* aix: improve AIX compatibility (Andrew Low)
+
+* windows: return bind error immediately when implicitly binding (Saúl Ibarra
+  Corretgé)
+
+* windows: don't use atexit for cleaning up the threadpool (Saúl Ibarra
+  Corretgé)
+
+* windows: destroy work queue elements when colsing a loop (Saúl Ibarra
+  Corretgé)
+
+* unix, windows: add uv_fs_mkdtemp (Pavel Platto)
+
+* build: handle platforms without multiprocessing.synchronize (Saúl Ibarra
+  Corretgé)
+
+* windows: change GENERIC_ALL to GENERIC_WRITE in fs__create_junction (Tony
+  Kelman)
+
+* windows: relay TCP bind errors via ipc (Alexis Campailla)
+
+
+2014.06.28, Version 0.11.26 (Unstable), 115281a1058c4034d5c5ccedacb667fe3f6327ea
+
+Changes since version 0.11.25:
+
+* windows: add VT100 codes ?25l and ?25h (JD Ballard)
+
+* windows: add invert ANSI (7 / 27) emulation (JD Ballard)
+
+* unix: fix handling error on UDP socket creation (Saúl Ibarra Corretgé)
+
+* unix, windows: getnameinfo implementation (Rasmus Pedersen)
+
+* heap: fix `heap_remove()` (Fedor Indutny)
+
+* unix, windows: fix parsing scoped IPv6 addresses (Saúl Ibarra Corretgé)
+
+* windows: fix handling closed socket while poll handle is closing (Saúl Ibarra
+  Corretgé)
+
+* thread: barrier functions (Ben Noordhuis)
+
+* windows: fix PYTHON environment variable usage (Jay Satiro)
+
+* unix, windows: return system error on EAI_SYSTEM (Saúl Ibarra Corretgé)
+
+* windows: fix handling closed socket while poll handle is closing (Saúl Ibarra
+  Corretgé)
+
+* unix: don't run i/o callbacks after prepare callbacks (Saúl Ibarra Corretgé)
+
+* windows: add tty unicode support for input (Peter Atashian)
+
+* header: introduce `uv_loop_size()` (Andrius Bentkus)
+
+* darwin: invoke `mach_timebase_info` only once (Fedor Indutny)
+
+
+2014.05.02, Version 0.11.25 (Unstable), 2acd544cff7142e06aa3b09ec64b4a33dd9ab996
 
 Changes since version 0.11.24:
 
@@ -32,8 +158,6 @@ Changes since version 0.11.23:
 * windows: fix console signal handler refcount (李港平)
 
 * inet: allow scopeid in uv_inet_pton (Fedor Indutny)
-
-* win: always leave crit section in get_proc_title (Fedor Indutny)
 
 
 2014.04.07, Version 0.11.23 (Unstable), e54de537efcacd593f36fcaaf8b4cb9e64313275
@@ -75,25 +199,6 @@ Changes since version 0.11.22:
 * stream: do not leak `alloc_cb` buffers on error (Fedor Indutny)
 
 * unix: fix setting written size on uv_wd (Saúl Ibarra Corretgé)
-
-
-2014.04.07, Version 0.10.26 (Stable), d864907611c25ec986c5e77d4d6d6dee88f26926
-
-Changes since version 0.10.25:
-
-* process: don't close stdio fds during spawn (Tonis Tiigi)
-
-* build, windows: do not fail on Windows SDK Prompt (Marc Schlaich)
-
-* build, windows: fix x64 configuration issue (Marc Schlaich)
-
-* win: fix buffer leak on error in pipe.c (Fedor Indutny)
-
-* kqueue: invalidate fd in uv_fs_event_t (Fedor Indutny)
-
-* linux: always deregister closing fds from epoll (Geoffry Song)
-
-* error: add ENXIO for O_NONBLOCK FIFO open() (Fedor Indutny)
 
 
 2014.03.11, Version 0.11.22 (Unstable), cd0c19b1d3c56acf0ade7687006e12e75fbda36d
@@ -223,6 +328,34 @@ Changes since version 0.11.18:
 * linux: move sscanf() out of the assert() (Trevor Norris)
 
 * linux: fix C99/C++ comment (Fedor Indutny)
+
+
+2014.05.02, Version 0.10.27 (Stable), 6e24ce23b1e7576059f85a608eca13b766458a01
+
+Changes since version 0.10.26:
+
+* windows: fix console signal handler refcount (Saúl Ibarra Corretgé)
+
+* win: always leave crit section in get_proc_title (Fedor Indutny)
+
+
+2014.04.07, Version 0.10.26 (Stable), d864907611c25ec986c5e77d4d6d6dee88f26926
+
+Changes since version 0.10.25:
+
+* process: don't close stdio fds during spawn (Tonis Tiigi)
+
+* build, windows: do not fail on Windows SDK Prompt (Marc Schlaich)
+
+* build, windows: fix x64 configuration issue (Marc Schlaich)
+
+* win: fix buffer leak on error in pipe.c (Fedor Indutny)
+
+* kqueue: invalidate fd in uv_fs_event_t (Fedor Indutny)
+
+* linux: always deregister closing fds from epoll (Geoffry Song)
+
+* error: add ENXIO for O_NONBLOCK FIFO open() (Fedor Indutny)
 
 
 2014.02.19, Version 0.10.25 (Stable), d778dc588507588b12b9f9d2905078db542ed751

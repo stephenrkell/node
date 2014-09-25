@@ -35,7 +35,7 @@
 #include <stdlib.h> /* malloc */
 #include <string.h> /* memset */
 
-#if defined(UV_PLATFORM_HAS_IP6_LINK_LOCAL_ADDRESS) && !defined(_WIN32)
+#if !defined(_WIN32)
 # include <net/if.h> /* if_nametoindex */
 #endif
 
@@ -65,6 +65,11 @@ size_t uv_req_size(uv_req_type type) {
 }
 
 #undef XX
+
+
+size_t uv_loop_size(void) {
+  return sizeof(uv_loop_t);
+}
 
 
 uv_buf_t uv_buf_init(char* base, unsigned int len) {
@@ -107,17 +112,14 @@ int uv_ip4_addr(const char* ip, int port, struct sockaddr_in* addr) {
 
 
 int uv_ip6_addr(const char* ip, int port, struct sockaddr_in6* addr) {
-#if defined(UV_PLATFORM_HAS_IP6_LINK_LOCAL_ADDRESS)
   char address_part[40];
   size_t address_part_size;
   const char* zone_index;
-#endif
 
   memset(addr, 0, sizeof(*addr));
   addr->sin6_family = AF_INET6;
   addr->sin6_port = htons(port);
 
-#if defined(UV_PLATFORM_HAS_IP6_LINK_LOCAL_ADDRESS)
   zone_index = strchr(ip, '%');
   if (zone_index != NULL) {
     address_part_size = zone_index - ip;
@@ -136,7 +138,6 @@ int uv_ip6_addr(const char* ip, int port, struct sockaddr_in6* addr) {
     addr->sin6_scope_id = if_nametoindex(zone_index);
 #endif
   }
-#endif
 
   return uv_inet_pton(AF_INET6, ip, &addr->sin6_addr);
 }
@@ -229,6 +230,26 @@ int uv_udp_send(uv_udp_send_t* req,
     return UV_EINVAL;
 
   return uv__udp_send(req, handle, bufs, nbufs, addr, addrlen, send_cb);
+}
+
+
+int uv_udp_try_send(uv_udp_t* handle,
+                    const uv_buf_t bufs[],
+                    unsigned int nbufs,
+                    const struct sockaddr* addr) {
+  unsigned int addrlen;
+
+  if (handle->type != UV_UDP)
+    return UV_EINVAL;
+
+  if (addr->sa_family == AF_INET)
+    addrlen = sizeof(struct sockaddr_in);
+  else if (addr->sa_family == AF_INET6)
+    addrlen = sizeof(struct sockaddr_in6);
+  else
+    return UV_EINVAL;
+
+  return uv__udp_try_send(handle, bufs, nbufs, addr, addrlen);
 }
 
 
@@ -437,13 +458,26 @@ int uv__getaddrinfo_translate_error(int sys_err) {
   case EAI_SOCKTYPE: return UV_EAI_SOCKTYPE;
 #endif
 #if defined(EAI_SYSTEM)
-  case EAI_SYSTEM: return UV_EAI_SYSTEM;
+  case EAI_SYSTEM: return -errno;
 #endif
   }
   assert(!"unknown EAI_* error code");
   abort();
   return 0;  /* Pacify compiler. */
 }
+
+
+size_t uv__count_bufs(const uv_buf_t bufs[], unsigned int nbufs) {
+  unsigned int i;
+  size_t bytes;
+
+  bytes = 0;
+  for (i = 0; i < nbufs; i++)
+    bytes += (size_t) bufs[i].len;
+
+  return bytes;
+}
+
 
 int uv_fs_event_getpath(uv_fs_event_t* handle, char* buf, size_t* len) {
   size_t required_len;

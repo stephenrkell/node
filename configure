@@ -54,6 +54,17 @@ parser.add_option('--no-ifaddrs',
     dest='no_ifaddrs',
     help='use on deprecated SunOS systems that do not support ifaddrs.h')
 
+parser.add_option("--fully-static",
+    action="store_true",
+    dest="fully_static",
+    help="Generate an executable without external dynamic libraries. This "
+         "will not work on OSX when using default compilation environment")
+
+parser.add_option("--openssl-no-asm",
+    action="store_true",
+    dest="openssl_no_asm",
+    help="Do not build optimized assembly for OpenSSL")
+
 # deprecated
 parser.add_option('--openssl-includes',
     action='store',
@@ -342,6 +353,13 @@ def is_arch_armv7():
           '__ARM_ARCH_7M__' in cc_macros_cache)
 
 
+def is_arch_armv6():
+  """Check for ARMv6 instructions"""
+  cc_macros_cache = cc_macros()
+  return ('__ARM_ARCH_6__' in cc_macros_cache or
+          '__ARM_ARCH_6M__' in cc_macros_cache)
+
+
 def is_arm_neon():
   """Check for ARM NEON support"""
   return '__ARM_NEON__' in cc_macros()
@@ -402,7 +420,8 @@ def host_arch_cc():
 def host_arch_win():
   """Host architecture check using environ vars (better way to do this?)"""
 
-  arch = os.environ.get('PROCESSOR_ARCHITECTURE', 'x86')
+  observed_arch = os.environ.get('PROCESSOR_ARCHITECTURE', 'x86')
+  arch = os.environ.get('PROCESSOR_ARCHITEW6432', observed_arch)
 
   matchup = {
     'AMD64'  : 'x64',
@@ -437,7 +456,14 @@ def configure_arm(o):
     arm_float_abi = 'hard'
   else:
     arm_float_abi = 'default'
-  o['variables']['armv7'] = int(is_arch_armv7())
+
+  if is_arch_armv7():
+    o['variables']['arm_version'] = '7'
+  elif is_arch_armv6():
+    o['variables']['arm_version'] = '6'
+  else:
+    o['variables']['arm_version'] = 'default'
+
   o['variables']['arm_fpu'] = 'vfpv3'  # V8 3.18 no longer supports VFP2.
   o['variables']['arm_neon'] = int(is_arm_neon())
   o['variables']['arm_thumb'] = 0      # -marm
@@ -455,6 +481,11 @@ def configure_node(o):
   target_arch = options.dest_cpu or host_arch
   o['variables']['host_arch'] = host_arch
   o['variables']['target_arch'] = target_arch
+
+  if target_arch != host_arch and not options.without_snapshot:
+    o['variables']['want_separate_host_toolset'] = 1
+  else:
+    o['variables']['want_separate_host_toolset'] = 0
 
   if target_arch == 'arm':
     configure_arm(o)
@@ -603,6 +634,8 @@ def configure_v8(o):
 def configure_openssl(o):
   o['variables']['node_use_openssl'] = b(not options.without_ssl)
   o['variables']['node_shared_openssl'] = b(options.shared_openssl)
+  o['variables']['openssl_no_asm'] = (
+    1 if options.openssl_no_asm else 0)
 
   if options.without_ssl:
     return
@@ -628,6 +661,14 @@ def configure_openssl(o):
       o['include_dirs'] += [options.shared_openssl_includes]
     else:
       o['cflags'] += cflags.split()
+
+
+def configure_fullystatic(o):
+  if options.fully_static:
+    o['libraries'] += ['-static']
+    if flavor == 'mac':
+      print("Generation of static executable will not work on OSX "
+            "when using default compilation environment")
 
 
 def configure_winsdk(o):
@@ -677,6 +718,7 @@ configure_v8(output)
 configure_openssl(output)
 configure_winsdk(output)
 configure_icu(output)
+configure_fullystatic(output)
 
 # variables should be a root level element,
 # move everything else to target_defaults
