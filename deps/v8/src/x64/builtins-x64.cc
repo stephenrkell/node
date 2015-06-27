@@ -1245,8 +1245,11 @@ void Builtins::Generate_StringConstructCode(MacroAssembler* masm) {
   // Set the value.
   __ movp(FieldOperand(rax, JSValue::kValueOffset), rbx);
 
+  // Write another word
+  __ movp(FieldOperand(rax, JSValue::kValueOffset + kPointerSize), Immediate(0));
+
   // Ensure the object is fully initialized.
-  STATIC_ASSERT(JSValue::kSize == 4 * kPointerSize);
+  STATIC_ASSERT(JSValue::kSize == 5 * kPointerSize);
 
   // We're done. Return.
   __ ret(0);

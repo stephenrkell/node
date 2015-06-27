@@ -1,12 +1,47 @@
-fix preloadness problem
+printing arrays
 
-get link_map structure visibility working (as a test of preloadness)
+printing pointers: 
 
-struct enumerator, getter, setter
+struct getter, setter
 
+array getter, setter
+
+disassembly for V8 functions
+
+libld storage for JS compiled code
+
+"pull up" externalisation from string into object
+
+**** is that enough? what eval is possible at this point? node-ffi case studies? perf?
+
+
+
+smaller things:
 reify libraries separately from each other
-
 (how to enumerate symbols? just rely on tab completion? probably some JS feature exists)
+... allow dlsym() on a specific library
 
-dlsym() on a specific library
 
+
+
+
+*** coroutines using liballocs: 
+     "save frame" primitive
+     can do relocation! because we know what's a pointer. only in-frame pointers (rare) need reloc
+     
+     
+     semantics:
+         call at a coroutine call site is either
+            starting a new instance
+            resuming an instance *called from the same site, in fact, same chain!*
+            -- heap-allocate a jmpbuf at this site? then free it on exit?
+         coroutine exit is either
+            yielding       -- save state, longjmp to the caller?
+            terminating    -- longjmp to the caller?
+            
+            
+         potential bad interaction of longjmp: any saved (malloc'd) contexts 
+             in intervening stack frames
+             from unrelated coroutine invocations
+                 will get leaked?
+            

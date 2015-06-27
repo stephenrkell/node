@@ -5224,6 +5224,11 @@ Local<v8::Object> ObjectTemplate::NewInstance() {
   has_pending_exception = !i::Execution::InstantiateObject(
       Utils::OpenHandle(this)).ToHandle(&obj);
   EXCEPTION_BAILOUT_CHECK(isolate, Local<v8::Object>());
+  fprintf(stderr, "Instantiated object template: ");
+  i::Handle<i::JSObject>::cast(obj)->PrintLn(stderr);
+  fprintf(stderr, "Instance type: ");
+  i::InstanceType t = i::Handle<i::JSObject>::cast(obj)->map()->instance_type();
+  fflush(stderr);
   return Utils::ToLocal(i::Handle<i::JSObject>::cast(obj));
 }
 

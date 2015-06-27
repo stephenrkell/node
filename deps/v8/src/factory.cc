@@ -1242,9 +1242,11 @@ Handle<JSFunction> Factory::NewFunction(MaybeHandle<Object> maybe_prototype,
   // Allocate the function
   Handle<JSFunction> function = NewFunction(name, code, maybe_prototype);
 
+  // if we're not a plain old object, or if we're of a non-smallest size, 
+  // or if the user asks, force the initial map
   if (force_initial_map ||
       type != JS_OBJECT_TYPE ||
-      instance_size != JSObject::kHeaderSize) {
+      instance_size != ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize)) {
     Handle<Object> prototype = maybe_prototype.ToHandleChecked();
     Handle<Map> initial_map = NewMap(type, instance_size);
     if (prototype->IsJSObject()) {
@@ -1289,7 +1291,7 @@ Handle<JSFunction> Factory::NewFunctionWithPrototype(Handle<String> name,
 
   if (force_initial_map ||
       type != JS_OBJECT_TYPE ||
-      instance_size != JSObject::kHeaderSize) {
+      instance_size != ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize)) {
     Handle<Map> initial_map = NewMap(type,
                                      instance_size,
                                      GetInitialFastElementsKind());
@@ -1861,7 +1863,7 @@ void Factory::ReinitializeJSGlobalProxy(Handle<JSGlobalProxy> object,
 
 
 void Factory::BecomeJSObject(Handle<JSReceiver> object) {
-  ReinitializeJSReceiver(object, JS_OBJECT_TYPE, JSObject::kHeaderSize);
+  ReinitializeJSReceiver(object, JS_OBJECT_TYPE, ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize));
 }
 
 
@@ -2133,7 +2135,7 @@ Handle<JSFunction> Factory::CreateApiFunction(
 
   Handle<JSFunction> result = NewFunction(
       maybe_prototype, Factory::empty_string(), type,
-      instance_size, code, !obj->remove_prototype());
+      ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(instance_size), code, !obj->remove_prototype());
 
   result->shared()->set_length(obj->length());
   Handle<Object> class_name(obj->class_name(), isolate());

@@ -49,6 +49,7 @@ extern Persistent<FunctionTemplate, v8::CopyablePersistentTraits<FunctionTemplat
  * https://groups.google.com/d/msg/v8-users/6kSAbnUb-rQ/QPMMfqssx5AJ
  */
 #define PERSISTENT_DEREFABLE_AS(T, p)   (*reinterpret_cast<Local< T >*>(&(p)))
+#define LOCAL_DEREFABLE_AS(T, p)   (*reinterpret_cast<Local< T >*>(&(p)))
 
 void LinkMapGetter(Local<String> property,
                    const PropertyCallbackInfo<Value>& info);
@@ -133,7 +134,7 @@ Local<Value> v8_set_indexed(Environment *env, void *ptr, int ind,
 Local<Value> v8_set_named(Environment *env, void *ptr, const char *n, 
     struct uniqtype *element_outermost, void *val);
 ffi_type *ffi_type_for_uniqtype(struct uniqtype *t);
-void *v8_make_uniqtype_instance(Environment *env, Local<Value> v, struct uniqtype *t);
+intptr_t v8_make_uniqtype_instance(Environment *env, Local<Value> v, struct uniqtype *t);
 Local<Value> v8_make_value(Environment *env, void *p_val_raw, struct uniqtype *t);
 } // end namespace node
 

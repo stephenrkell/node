@@ -252,11 +252,22 @@ HeapObject* PagedSpace::AllocateLinearly(int size_in_bytes) {
 
 // Raw allocation.
 AllocationResult PagedSpace::AllocateRaw(int size_in_bytes) {
+#define SPACES_ZERO_PADDING(obj) do { \
+    ASSERT((obj) != NULL); \
+    unsigned long long addr = reinterpret_cast<unsigned long long>((obj)) & ~0x1ul; \
+    for (int offset = HeapObject::kHeaderSize; \
+        offset < ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(HeapObject::kHeaderSize) \
+        && offset + kPointerSize <= size_in_bytes; offset += kPointerSize) { \
+           \
+      *((Object**) (addr + offset)) = Smi::FromInt(43); \
+    } \
+    } while (0)
   HeapObject* object = AllocateLinearly(size_in_bytes);
   if (object != NULL) {
     if (identity() == CODE_SPACE) {
       SkipList::Update(object->address(), size_in_bytes);
     }
+    SPACES_ZERO_PADDING(object);
     return object;
   }
 
@@ -269,6 +280,7 @@ AllocationResult PagedSpace::AllocateRaw(int size_in_bytes) {
     if (identity() == CODE_SPACE) {
       SkipList::Update(object->address(), size_in_bytes);
     }
+    SPACES_ZERO_PADDING(object);
     return object;
   }
 
@@ -277,6 +289,7 @@ AllocationResult PagedSpace::AllocateRaw(int size_in_bytes) {
     if (identity() == CODE_SPACE) {
       SkipList::Update(object->address(), size_in_bytes);
     }
+    SPACES_ZERO_PADDING(object);
     return object;
   }
 
@@ -332,9 +345,12 @@ intptr_t LargeObjectSpace::Available() {
 bool FreeListNode::IsFreeListNode(HeapObject* object) {
   Map* map = object->map();
   Heap* heap = object->GetHeap();
-  return map == heap->raw_unchecked_free_space_map()
+  return map == NULL
+      || map == heap->raw_unchecked_free_space_map()
       || map == heap->raw_unchecked_one_pointer_filler_map()
-      || map == heap->raw_unchecked_two_pointer_filler_map();
+      || map == heap->raw_unchecked_two_pointer_filler_map()
+      || map == heap->raw_unchecked_three_pointer_filler_map()
+      || map == heap->raw_unchecked_four_pointer_filler_map();
 }
 
 } }  // namespace v8::internal

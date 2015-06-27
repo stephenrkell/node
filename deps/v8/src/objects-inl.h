@@ -1981,7 +1981,15 @@ void JSObject::InitializeBody(Map* map,
     }
   }
   while (offset < size) {
-    WRITE_FIELD(this, offset, filler_value);
+    /* If we're at an offset less than the minimum instance size, we might be 
+     * initializing "compulsory padding". In the case of flexible body descriptors, 
+     * this can cause problems because the debugging deadbeef filler value looks 
+     * like a pointer. So override it with zero. */
+    if (ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(offset) > offset) {
+      WRITE_FIELD(this, offset, Smi::FromInt(0));
+    } else {
+      WRITE_FIELD(this, offset, filler_value);
+    }
     offset += kPointerSize;
   }
 }
@@ -2016,6 +2024,13 @@ bool JSObject::TooManyFastProperties(StoreFromKeyed store_mode) {
 void Struct::InitializeBody(int object_size) {
   Object* value = GetHeap()->undefined_value();
   for (int offset = kHeaderSize; offset < object_size; offset += kPointerSize) {
+//     // WRITE_FIELD(this, offset, value);
+//     if (ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(offset) > offset) {
+//       WRITE_FIELD(this, offset, Smi::FromInt(0));
+//     } else {
+//       WRITE_FIELD(this, offset, value);
+//     }
+    // srk: revert the above for now, after FunctionTemplateInfo problems
     WRITE_FIELD(this, offset, value);
   }
 }
@@ -3889,7 +3904,7 @@ void Map::set_visitor_id(int id) {
 
 int Map::instance_size() {
   return NOBARRIER_READ_BYTE_FIELD(
-      this, kInstanceSizeOffset) << kPointerSizeLog2;
+      this, kInstanceSizeOffset)<< kPointerSizeLog2;
 }
 
 
@@ -3905,9 +3920,12 @@ int Map::pre_allocated_property_fields() {
 
 int Map::GetInObjectPropertyOffset(int index) {
   // Adjust for the number of properties stored in the object.
-  index -= inobject_properties();
-  ASSERT(index < 0);
-  return instance_size() + (index * kPointerSize);
+  int word_offset_from_end_of_object = index - inobject_properties();
+  // i.e. in range [-1, - n_inobject_properties]
+  // index -= inobject_properties();
+  // ASSERT(index < 0);
+  ASSERT(word_offset_from_end_of_object < 0);
+  return instance_size() + (word_offset_from_end_of_object * kPointerSize);
 }
 
 
@@ -3959,6 +3977,7 @@ void Map::set_instance_size(int value) {
   ASSERT_EQ(0, value & (kPointerSize - 1));
   value >>= kPointerSizeLog2;
   ASSERT(0 <= value && value < 256);
+  if (value != kVariableSizeSentinel && value < kMinInstanceFields) value = kMinInstanceFields;
   NOBARRIER_WRITE_BYTE_FIELD(
       this, kInstanceSizeOffset, static_cast<byte>(value));
 }

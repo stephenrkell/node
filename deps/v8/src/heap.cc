@@ -89,7 +89,7 @@ Heap::Heap()
       amount_of_external_allocated_memory_(0),
       amount_of_external_allocated_memory_at_last_global_gc_(0),
       old_gen_exhausted_(false),
-      inline_allocation_disabled_(false),
+      inline_allocation_disabled_(/*false*/ true),
       store_buffer_rebuilder_(store_buffer()),
       hidden_string_(NULL),
       gc_safe_size_of_old_object_(NULL),
@@ -2436,6 +2436,7 @@ bool Heap::CreateInitialMaps() {
     { Map* map;                                                                \
       if (!AllocatePartialMap((instance_type), (size)).To(&map)) return false; \
       set_##field_name##_map(map);                                             \
+      fprintf(stderr, "Partial map %s is at %p\n", #field_name, map); \
     }
 
     ALLOCATE_PARTIAL_MAP(FIXED_ARRAY_TYPE, kVariableSizeSentinel, fixed_array);
@@ -2530,6 +2531,7 @@ bool Heap::CreateInitialMaps() {
     { Map* map;                                                                \
       if (!AllocateMap((instance_type), size).To(&map)) return false;          \
       set_##field_name##_map(map);                                             \
+      fprintf(stderr, "Map %s is at %p\n", #field_name, map); \
     }
 
 #define ALLOCATE_VARSIZE_MAP(instance_type, field_name)                        \
@@ -2595,6 +2597,8 @@ bool Heap::CreateInitialMaps() {
     ALLOCATE_MAP(PROPERTY_CELL_TYPE, PropertyCell::kSize, global_property_cell)
     ALLOCATE_MAP(FILLER_TYPE, kPointerSize, one_pointer_filler)
     ALLOCATE_MAP(FILLER_TYPE, 2 * kPointerSize, two_pointer_filler)
+    ALLOCATE_MAP(FILLER_TYPE, 3 * kPointerSize, three_pointer_filler)
+    ALLOCATE_MAP(FILLER_TYPE, 4 * kPointerSize, four_pointer_filler)
 
 
     for (unsigned i = 0; i < ARRAY_SIZE(struct_table); i++) {
@@ -2625,7 +2629,7 @@ bool Heap::CreateInitialMaps() {
 
     ALLOCATE_MAP(JS_MESSAGE_OBJECT_TYPE, JSMessageObject::kSize,
         message_object)
-    ALLOCATE_MAP(JS_OBJECT_TYPE, JSObject::kHeaderSize + kPointerSize,
+    ALLOCATE_MAP(JS_OBJECT_TYPE, ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize + kPointerSize),
         external)
     external_map()->set_is_extensible(false);
 #undef ALLOCATE_VARSIZE_MAP
@@ -2720,7 +2724,7 @@ void Heap::CreateApiObjects() {
   HandleScope scope(isolate());
   Factory* factory = isolate()->factory();
   Handle<Map> new_neander_map =
-      factory->NewMap(JS_OBJECT_TYPE, JSObject::kHeaderSize);
+      factory->NewMap(JS_OBJECT_TYPE, ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize));
 
   // Don't use Smi-only elements optimizations for objects with the neander
   // map. There are too many cases where element values are set directly with a
@@ -2917,11 +2921,11 @@ void Heap::CreateInitialObjects() {
 
   // Allocate object to hold object observation state.
   set_observation_state(*factory->NewJSObjectFromMap(
-      factory->NewMap(JS_OBJECT_TYPE, JSObject::kHeaderSize)));
+      factory->NewMap(JS_OBJECT_TYPE, ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize))));
 
   // Allocate object to hold object microtask state.
   set_microtask_state(*factory->NewJSObjectFromMap(
-      factory->NewMap(JS_OBJECT_TYPE, JSObject::kHeaderSize)));
+      factory->NewMap(JS_OBJECT_TYPE, ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize))));
 
   set_frozen_symbol(*factory->NewPrivateSymbol());
   set_nonexistent_symbol(*factory->NewPrivateSymbol());
@@ -3277,6 +3281,10 @@ void Heap::CreateFillerObjectAt(Address addr, int size) {
     filler->set_map_no_write_barrier(one_pointer_filler_map());
   } else if (size == 2 * kPointerSize) {
     filler->set_map_no_write_barrier(two_pointer_filler_map());
+  } else if (size == 3 * kPointerSize) {
+    filler->set_map_no_write_barrier(three_pointer_filler_map());
+  } else if (size == 4 * kPointerSize) {
+    filler->set_map_no_write_barrier(four_pointer_filler_map());
   } else {
     filler->set_map_no_write_barrier(free_space_map());
     FreeSpace::cast(filler)->set_size(size);
@@ -4151,6 +4159,13 @@ AllocationResult Heap::AllocateFixedArrayWithFiller(int length,
   FixedArray* array = FixedArray::cast(result);
   array->set_length(length);
   MemsetPointer(array->data_start(), filler, length);
+  int nwords_used = (FixedArrayBase::kHeaderSize >> kPointerSizeLog2) + length;
+  int nwords_min = ROUND_UP_TO_MIN_INSTANCE_SIZE_WORDS(nwords_used);
+  /* If our length is less than the minimum object size, fill with something
+   * harmless... use the filler for this too. */
+  //if (nwords_min > nwords_used) MemsetPointer(array->data_start() + length, filler,
+  //	nwords_min - nwords_used);
+  
   return array;
 }
 
@@ -5247,6 +5262,8 @@ bool Heap::SetUp() {
   if (!new_space_.SetUp(reserved_semispace_size_, max_semispace_size_)) {
     return false;
   }
+  fprintf(stderr, "Set up new space with top %p, size %ld\n", new_space_.start(),
+    (long) new_space_.Size());
 
   // Initialize old pointer space.
   old_pointer_space_ =
@@ -5256,6 +5273,9 @@ bool Heap::SetUp() {
                    NOT_EXECUTABLE);
   if (old_pointer_space_ == NULL) return false;
   if (!old_pointer_space_->SetUp()) return false;
+  /* PagedSpaces are not contiguous, so we have to instrument the pagewise
+   * allocation/deallocation. */
+  fprintf(stderr, "Old pointer space is at %p\n", old_pointer_space_);
 
   // Initialize old data space.
   old_data_space_ =
@@ -5267,6 +5287,8 @@ bool Heap::SetUp() {
   if (!old_data_space_->SetUp()) return false;
 
   if (!isolate_->code_range()->SetUp(code_range_size_)) return false;
+  fprintf(stderr, "Set up code range with base %p (size is 2GB)\n", 
+    isolate_->code_range()->start());
 
   // Initialize the code space, set its maximum capacity to the old
   // generation size. It needs executable memory.

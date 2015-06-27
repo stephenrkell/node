@@ -30,12 +30,59 @@
 #include "string-stream.h"
 #include "utils.h"
 
+// srk
+extern "C" {
+#include "uniqtype.h"
+}
+namespace node {
+v8::Local<v8::ObjectTemplate> v8_get_object_template_for_type(v8::Isolate *i, struct uniqtype *t) 
+ __attribute__((weak));
+}
+
 #ifdef ENABLE_DISASSEMBLER
 #include "disasm.h"
 #include "disassembler.h"
 #endif
 
 namespace v8 {
+
+bool PrintObject(v8::Handle<v8::Object> v_api) {
+  // open the handle
+  v8::internal::Handle<v8::internal::Object> v = v8::Utils::OpenHandle(*v_api);
+#ifdef OBJECT_PRINT
+  v->PrintLn(stderr);
+#endif
+  fflush(stderr);
+  return true;
+}
+
+bool ExternalizeObject(v8::Handle<v8::Object> v_api, struct uniqtype *t) {
+  fprintf(stderr, "Saw V8 object for which object printer says: ");
+  PrintObject(v_api);
+  // open the handle
+  v8::internal::Handle<v8::internal::Object> v = v8::Utils::OpenHandle(*v_api);
+  if (v->IsExternal()) return false;
+  /* Is it an array? */
+  if (v->IsFixedArrayBase())
+  {
+    // adapted from Object::IsFixedArrayBase() in objects-inl.h
+    ASSERT(v->IsFixedArray() || v->IsFixedDoubleArray() || v->IsConstantPoolArray() ||
+         v->IsFixedTypedArrayBase());
+    if (v->IsConstantPoolArray()) return false; // don't deal with this for now
+    if (v->IsFixedArray())
+    {
+      return false;
+    }
+    else return false;
+  }
+  /* Generic version: is it a heap object? */
+  else if (v->IsHeapObject())
+  {
+    return v8::internal::HeapObject::cast(*v)->MakeExternal(t);
+  }
+  else return false;
+}
+
 namespace internal {
 
 Handle<HeapType> Object::OptimalType(Isolate* isolate,
@@ -1056,7 +1103,425 @@ Handle<String> String::SlowFlatten(Handle<ConsString> cons,
   return result;
 }
 
+bool HeapObject::MakeExternal(struct uniqtype *t) {
+  Heap* heap = GetHeap();
+  int size = Size();  // Byte size of the original heap object.
 
+  /* This method is a mashup of 
+   * 
+   *    JSObject::NormalizeProperties
+   *    JSObject::MigrateToMap
+   *    String::MakeExternal
+   *    JSObject::PrintElements
+   */
+
+  Isolate* isolate = this->GetIsolate();
+  Handle<Map> old_map(this->map());
+//   int number_of_fields = old_map->NumberOfFields();
+//   int inobject = old_map->inobject_properties();
+//   int unused = old_map->unused_property_fields();
+// 
+//   int total_size = number_of_fields + unused;
+//   int external = total_size - inobject;
+//   Handle<FixedArray> array = isolate->factory()->NewFixedArray(total_size);
+// 
+//   Handle<DescriptorArray> old_descriptors(old_map->instance_descriptors());
+//   int old_nof = old_map->NumberOfOwnDescriptors();
+// 
+//   fprintf(stderr, "Iterating through %d properties\n", old_nof);
+//   for (int i = 0; i < old_nof; i++) {
+//     PropertyDetails old_details = old_descriptors->GetDetails(i);
+//     if (old_details.type() == CALLBACKS) {
+//       fprintf(stderr, "Property number %d is a callback\n", i);
+//       continue;
+//     }
+//     ASSERT(old_details.type() == CONSTANT ||
+//            old_details.type() == FIELD);
+//     Object* raw_value = old_descriptors->GetValue(i);
+//     Handle<Object> value(raw_value, isolate);
+//     fprintf(stderr, "Property number %d prints as: ", i);
+//     value->PrintLn(stderr);
+//     fflush(stderr);
+// 
+//     array->set(i, *value);
+//   }
+  
+  // Allocate new content.
+  int real_size = old_map->NumberOfOwnDescriptors();
+  int property_count = real_size;
+//   if (expected_additional_properties > 0) {
+//     property_count += expected_additional_properties;
+//   } else {
+//     property_count += 2;  // Make space for two more properties.
+//   }
+
+  // keep a dictionary of names to values
+  Handle<NameDictionary> dictionary =
+      NameDictionary::New(isolate, property_count);
+      
+  // srk HACK HACK HACK
+  Handle<JSObject> self(JSObject::cast(this));
+
+  int number_of_fields = old_map->NumberOfFields();
+  int inobject = old_map->inobject_properties();
+  int unused = old_map->unused_property_fields();
+
+  int total_size = number_of_fields + unused;
+  int external = total_size - inobject;
+
+  Handle<DescriptorArray> descs(old_map->instance_descriptors());
+  fprintf(stderr, "Iterating through %d properties (number_of_fields %d, inobject %d, unused %d, external %d)\n", 
+    real_size, number_of_fields, inobject, unused, external);
+  
+  int i;
+  for (i = 0; i < real_size; i++) {
+    PropertyDetails details = descs->GetDetails(i);
+    switch (details.type()) {
+      case CONSTANT: {
+        Handle<Name> key(descs->GetKey(i));
+        Handle<Object> value(descs->GetConstant(i), isolate);
+        PropertyDetails d = PropertyDetails(
+            details.attributes(), NORMAL, i + 1);
+        dictionary = NameDictionary::Add(dictionary, key, value, d);
+        fprintf(stderr, "Property number %d is a CONSTANT, printing as: ", i);
+        value->PrintLn(stderr);
+        fflush(stderr);
+        break;
+      }
+      case FIELD: {
+        Handle<Name> key(descs->GetKey(i));
+        Handle<Object> value(
+            self->RawFastPropertyAt(descs->GetFieldIndex(i)), isolate);
+        PropertyDetails d =
+            PropertyDetails(details.attributes(), NORMAL, i + 1);
+        dictionary = NameDictionary::Add(dictionary, key, value, d);
+        fprintf(stderr, "Property number %d is a FIELD, printing as: ", i);
+        value->PrintLn(stderr);
+        fflush(stderr);
+        break;
+      }
+      case CALLBACKS: {
+        Handle<Name> key(descs->GetKey(i));
+        Handle<Object> value(descs->GetCallbacksObject(i), isolate);
+        PropertyDetails d = PropertyDetails(
+            details.attributes(), CALLBACKS, i + 1);
+        dictionary = NameDictionary::Add(dictionary, key, value, d);
+        fprintf(stderr, "Property number %d is a CALLBACKS, printing as: ", i);
+        value->PrintLn(stderr);
+        fflush(stderr);
+        break;
+      }
+      case INTERCEPTOR:
+        fprintf(stderr, "Property number %d is an INTERCEPTOR\n", i);
+        fflush(stderr);
+        break;
+      case HANDLER:
+      case NORMAL:
+      case NONEXISTENT:
+        UNREACHABLE();
+        break;
+    }
+  }
+  fprintf(stderr, "Iterating through elements...\n");
+  
+  char buf[20];
+  bzero(&buf, sizeof buf);
+#define NAME_FROM_INDEX(ind) \
+isolate->factory()->\
+NewStringFromAscii(Vector<const char>(buf, snprintf(buf, sizeof buf, "%d", (ind)))).ToHandleChecked()
+
+// v8::String::NewFromOneByte(reinterpret_cast<v8::Isolate*>(isolate), buf, v8::String::kNormalString, snprintf((char*) buf, sizeof buf, "%d", (ind)))
+#define SAW_FIELD(k_string, v_value) \
+        Handle<Name> key(k_string); \
+        Handle<Object> value(v_value, isolate); \
+        dictionary = NameDictionary::Add(dictionary, key, value,  \
+            PropertyDetails(/* readonly, dontenum, dontdelete? */PropertyAttributes(0) /* details.attributes()*/, NORMAL, i + 1)); \
+        fprintf(stderr, "Element number %d (i is now %d) prints as: ", j, i); \
+        (v_value)->PrintLn(stderr); \
+        fflush(stderr)
+
+  // Don't call GetElementsKind, its validation code can cause the printer to
+  // fail when debugging.
+  switch (map()->elements_kind()) {
+    case FAST_HOLEY_SMI_ELEMENTS:
+    case FAST_SMI_ELEMENTS:
+    case FAST_HOLEY_ELEMENTS:
+    case FAST_ELEMENTS: {
+      // Print in array notation for non-sparse arrays.
+      FixedArray* p = FixedArray::cast(self->elements());
+      for (int j = 0; j < p->length(); ++j) {
+        SAW_FIELD(NAME_FROM_INDEX(j), p->get(j));
+        ++i;
+        break;
+      }
+      break;
+    }
+    case FAST_HOLEY_DOUBLE_ELEMENTS:
+    case FAST_DOUBLE_ELEMENTS: {
+      // Print in array notation for non-sparse arrays.
+      if (self->elements()->length() > 0) {
+        FixedDoubleArray* p = FixedDoubleArray::cast(self->elements());
+        for (int j = 0; j < p->length(); j++) {
+          if (p->is_the_hole(j)) {
+          
+            // what to do with a hole?
+          
+          } else {
+            // PrintF(out, "   %d: %g", j, p->get_scalar(j));
+            SAW_FIELD(NAME_FROM_INDEX(j), *isolate->factory()->NewNumber(p->get_scalar(j)));
+            ++i;
+          }
+          // PrintF(out, "\n");
+        }
+      }
+      break;
+    }
+#define COPY_ELEMENTS(Kind, Type)                                          \
+    case Kind: {                                                            \
+      Type* p = Type::cast(self->elements()); \
+      for (int j = 0; j < p->length(); j++) { \
+          SAW_FIELD(NAME_FROM_INDEX(j), *isolate->factory()->NewNumber(p->get_scalar(j))); \
+      } \
+      break; \
+    }
+    COPY_ELEMENTS(EXTERNAL_UINT8_CLAMPED_ELEMENTS, ExternalUint8ClampedArray)
+    COPY_ELEMENTS(EXTERNAL_INT8_ELEMENTS, ExternalInt8Array)
+    COPY_ELEMENTS(EXTERNAL_UINT8_ELEMENTS,
+        ExternalUint8Array)
+    COPY_ELEMENTS(EXTERNAL_INT16_ELEMENTS, ExternalInt16Array)
+    COPY_ELEMENTS(EXTERNAL_UINT16_ELEMENTS,
+        ExternalUint16Array)
+    COPY_ELEMENTS(EXTERNAL_INT32_ELEMENTS, ExternalInt32Array)
+    COPY_ELEMENTS(EXTERNAL_UINT32_ELEMENTS,
+        ExternalUint32Array)
+    COPY_ELEMENTS(EXTERNAL_FLOAT32_ELEMENTS, ExternalFloat32Array)
+    COPY_ELEMENTS(EXTERNAL_FLOAT64_ELEMENTS, ExternalFloat64Array)
+    COPY_ELEMENTS(UINT8_ELEMENTS, FixedUint8Array)
+    COPY_ELEMENTS(UINT8_CLAMPED_ELEMENTS, FixedUint8ClampedArray)
+    COPY_ELEMENTS(INT8_ELEMENTS, FixedInt8Array)
+    COPY_ELEMENTS(UINT16_ELEMENTS, FixedUint16Array)
+    COPY_ELEMENTS(INT16_ELEMENTS, FixedInt16Array)
+    COPY_ELEMENTS(UINT32_ELEMENTS, FixedUint32Array)
+    COPY_ELEMENTS(INT32_ELEMENTS, FixedInt32Array)
+    COPY_ELEMENTS(FLOAT32_ELEMENTS, FixedFloat32Array)
+    COPY_ELEMENTS(FLOAT64_ELEMENTS, FixedFloat64Array)
+
+#undef COPY_ELEMENTS
+
+    case DICTIONARY_ELEMENTS:
+      // elements()->Print(out);
+      break;
+    case SLOPPY_ARGUMENTS_ELEMENTS: {
+      FixedArray* p = FixedArray::cast(self->elements());
+      //PrintF(out, "   parameter map:");
+      for (int j = 2; j < p->length(); j++) {
+        SAW_FIELD(NAME_FROM_INDEX(j), p->get(j));
+        //PrintF(out, " %d:", j - 2);
+        // p->get(j)->ShortPrint(out);
+      }
+      //PrintF(out, "\n   context: ");
+      //p->get(0)->ShortPrint(out);
+      //PrintF(out, "\n   arguments: ");
+      //p->get(1)->ShortPrint(out);
+      //PrintF(out, "\n");
+      break;
+    }
+  }
+
+  // Copy the next enumeration index from instance descriptor.
+  dictionary->SetNextEnumerationIndex(real_size + 1);
+  
+//   // From here on we cannot fail and we shouldn't GC anymore.
+//   DisallowHeapAllocation no_allocation;
+
+//   // Copy (real) inobject properties. If necessary, stop at number_of_fields to
+//   // avoid overwriting |one_pointer_filler_map|.
+//   int limit = Min(inobject, number_of_fields);
+//   for (int i = 0; i < limit; i++) {
+//     object->FastPropertyAtPut(i, array->get(external + i));
+//   }
+// 
+//   // Create filler object past the new instance size.
+//   int new_instance_size = /* HACK: use the old size for now */ /*new_*/old_map->instance_size();
+//   int instance_size_delta = old_map->instance_size() - new_instance_size;
+//   ASSERT(instance_size_delta >= 0);
+//   Address address = object->address() + new_instance_size;
+// 
+//   // The trimming is performed on a newly allocated object, which is on a
+//   // fresly allocated page or on an already swept page. Hence, the sweeper
+//   // thread can not get confused with the filler creation. No synchronization
+//   // needed.
+//   isolate->heap()->CreateFillerObjectAt(address, instance_size_delta);
+
+//   // If there are properties in the new backing store, trim it to the correct
+//   // size and install the backing store into the object.
+//   if (external > 0) {
+//     RightTrimFixedArray<Heap::FROM_MUTATOR>(isolate->heap(), *array, inobject);
+//     object->set_properties(*array);
+//   }
+// 
+//   // The trimming is performed on a newly allocated object, which is on a
+//   // fresly allocated page or on an already swept page. Hence, the sweeper
+//   // thread can not get confused with the filler creation. No synchronization
+//   // needed.
+//   object->set_map(*new_map);
+
+
+  /* Now resize the object so that it has exactly two internal fields. Note (from objects-inl.h):
+  
+  int JSObject::GetInternalFieldCount() {
+  ASSERT(1 << kPointerSizeLog2 == kPointerSize);
+  // Make sure to adjust for the number of in-object properties. These
+  // properties do contribute to the size, but are not internal fields.
+  return ((Size() - GetHeaderSize()) >> kPointerSizeLog2) -
+         map()->inobject_properties();
+}
+
+    and note that Size() is just SizeFromMap(map())
+    
+    and GetHeaderSize() is a constant fixed by map()->instance_type() (objects-inl.h:1810)
+   */
+
+  int new_size = this->SizeFromMap(/*new_*/*old_map);
+
+  fprintf(stderr, "before: size %ld bytes, header size %ld bytes, inobject properties %d, new size from old map %d, internal field count %d\n",
+    (long) self->Size(), (long) self->GetHeaderSize(), (int) old_map->inobject_properties(), new_size, self->GetInternalFieldCount());
+
+  static const char *fakePropertyNames[] = { "__allocs_blah1", "__allocs_blah2", "__allocs_blah3" };
+  int addedPropertyInd = -1;
+  while (self->GetInternalFieldCount() < 2)
+  {
+    self->PrintLn(stderr);
+    ++addedPropertyInd;
+    ASSERT(addedPropertyInd < 3);
+    Handle<Object> undefined = isolate->factory()->undefined_value();
+    //MaybeHandle<Object> returned = self->
+    JSReceiver::SetProperty/*AddProperty*/(
+      self,
+      isolate->factory()->InternalizeUtf8String(fakePropertyNames[addedPropertyInd]), 
+      isolate->factory()->NewNumber(42.0) /*Smi::FromInt(42)*/,// undefined,
+      NONE,      //PropertyAttributes
+      STRICT).Check();   //StrictMode
+      //PropertyAttributes attributes,
+      //StrictMode strict_mode,
+      //JSReceiver::StoreFromKeyed store_mode,
+      //ExtensibilityCheck extensibility_check,
+      //ValueType value_type,
+      //StoreMode mode,
+      //TransitionFlag transition_flag) 
+    fprintf(stderr, "during: size %ld bytes, header size %ld bytes, inobject properties %d, new size from old map %d, internal field count %d\n",
+      (long) self->Size(), (long) self->GetHeaderSize(), (int) old_map->inobject_properties(), new_size, self->GetInternalFieldCount());
+  }
+
+  fprintf(stderr, "after: size %ld bytes, header size %ld bytes, inobject properties %d, new size from old map %d, internal field count %d\n",
+    (long) self->Size(), (long) self->GetHeaderSize(), (int) old_map->inobject_properties(), new_size, self->GetInternalFieldCount());
+	
+  // we want to use ReinitializeJSReceiver here
+  // but first, add some properties!
+    
+  // heap->CreateFillerObjectAt(this->address() + new_size, size - new_size);
+  
+  // we want to use ReinitializeJSReceiver(object, InstanceType, size) here
+  // -- can it increase the size? I think so
+  /*v8::internal::MaybeObject *new_object = */isolate->factory()->ReinitializeJSReceiver(
+    self, JS_OBJECT_TYPE, JSObject::kHeaderSize + (2 << kPointerSizeLog2));
+  
+  // self->SetInternalFieldCount(2);
+  
+
+  // Replace the map and reinitialize the fields. 
+  
+  /* Some confusion here:
+   * 
+   *     Objects having "internal fields" must be JSObjects (internally; Objects in V8 API)
+   *     This means that NewInstance on an ObjectTemplate gives us a JSObject
+   *
+   *     How were we creating our JS objects using object templates? Answer:
+   *     1. Local<ObjectTemplate> struct_l = Local<ObjectTemplate>::New(env->isolate(), allocs_struct_template);
+            -- this does nothing! it just creates a new handle!
+   *     2. Local<Object> obj = struct_l->NewInstance();
+            -- this does NewInstance on the ObjectTemplate. It does *not* do New() on it!
+            -- ObjectTemplate::New() is a *static* function for *creating* templates.
+            -- ObjectTemplateInfo is a behind-the-scenes struct 
+   *     
+   */
+  // Map* new_map = heap->external_map();//o->map(); 
+  void *storage = calloc(1, t->pos_maxoff);
+  
+  Handle<Object> other;
+  // get the template that we want to become an instance of
+  Handle<ObjectTemplateInfo> tmpl_obj = Utils::OpenHandle(
+    *node::v8_get_object_template_for_type(
+      reinterpret_cast<v8::Isolate *>(heap->isolate()), t));
+  // configure instance
+  bool has_pending_exception = !i::Execution::ConfigureInstance(heap->isolate(), self, 
+    tmpl_obj).ToHandle(&other);
+  if (has_pending_exception) /* FIXME */ return false;
+  
+  fprintf(stderr, "After ConfigureInstance, `self' prints as: ");
+  self->PrintLn(stderr);
+  fprintf(stderr, "After ConfigureInstance, `other' prints as: ");
+  other->PrintLn(stderr);
+  fflush(stderr);
+  
+  /* Make sure we have the internal fields available. */
+  ASSERT(self->GetInternalFieldCount() == 2);
+  self->SetInternalField(0, reinterpret_cast<i::Smi*>(storage));
+    
+/* We call NewInstance on the ObjectTemplate, which, in api.cc, does
+      i::Isolate* isolate = i::Isolate::Current();
+  ON_BAILOUT(isolate, "v8::ObjectTemplate::NewInstance()",
+             return Local<v8::Object>());
+  LOG_API(isolate, "ObjectTemplate::NewInstance");
+  ENTER_V8(isolate);
+  EXCEPTION_PREAMBLE(isolate);
+  i::Handle<i::Object> obj;
+  has_pending_exception = !i::Execution::InstantiateObject(
+      Utils::OpenHandle(this)).ToHandle(&obj);
+  EXCEPTION_BAILOUT_CHECK(isolate, Local<v8::Object>());
+  return Utils::ToLocal(i::Handle<i::JSObject>::cast(obj));
+
+    what's this Execution::InstantiateObject thing?
+    
+        Handle<Object> args[] = { data };
+    ASSIGN_RETURN_ON_EXCEPTION(
+        isolate, result,
+        Call(isolate,
+             isolate->instantiate_fun(),
+             isolate->js_builtins_object(),
+             ARRAY_SIZE(args),
+             args),
+        JSObject);
+        
+        which basically evaluates the third argument (args are: (isolate, dst, call, T))
+        and do ToHandle on it, trying to write the output handle 
+         into the second argument.
+        
+        where Call is an Execution primitive to invoke... something.
+        
+MaybeHandle<Object> Execution::Call(Isolate* isolate,
+                                    Handle<Object> callable,
+                                    Handle<Object> receiver,
+                                    int argc,
+                                    Handle<Object> argv[],
+                                    bool convert_receiver) {
+         so it's calling the isolate's instantiate_fun()
+         on its js_builtins_object()
+         passing some args.
+
+   */
+  
+  // TODO: copy the content!
+  // TODO: update external objects table!
+  
+  // ExternalAsciiString* self = ExternalAsciiString::cast(this);
+  //self->set_resource(resource);
+  //if (is_internalized) self->Hash();  // Force regeneration of the hash value.
+
+  heap->AdjustLiveBytes(this->address(), new_size - size, Heap::FROM_MUTATOR);
+  return true;
+
+}
 
 bool String::MakeExternal(v8::String::ExternalStringResource* resource) {
   // Externalizing twice leaks the external resource, so it's
@@ -7312,7 +7777,9 @@ Handle<Map> Map::CopyNormalized(Handle<Map> map,
                                 NormalizedMapSharingMode sharing) {
   int new_instance_size = map->instance_size();
   if (mode == CLEAR_INOBJECT_PROPERTIES) {
-    new_instance_size -= map->inobject_properties() * kPointerSize;
+    new_instance_size = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(
+        new_instance_size - map->inobject_properties() * kPointerSize
+    );
   }
 
   Handle<Map> result = RawCopy(map, new_instance_size);
@@ -10604,8 +11071,8 @@ int SharedFunctionInfo::SourceSize() {
 
 int SharedFunctionInfo::CalculateInstanceSize() {
   int instance_size =
-      JSObject::kHeaderSize +
-      expected_nof_properties() * kPointerSize;
+      ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize +
+      expected_nof_properties() * kPointerSize);
   if (instance_size > JSObject::kMaxInstanceSize) {
     instance_size = JSObject::kMaxInstanceSize;
   }
@@ -10847,7 +11314,7 @@ void SharedFunctionInfo::CompleteInobjectSlackTracking() {
             construct_stub());
   set_construct_stub(builtins->builtin(Builtins::kJSConstructStubGeneric));
 
-  int slack = map->unused_property_fields();
+  int slack = map->unused_property_fields() - 2;
   map->TraverseTransitionTree(&GetMinInobjectSlack, &slack);
   if (slack != 0) {
     // Resize the initial map and all maps in its transition tree.

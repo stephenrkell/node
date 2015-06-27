@@ -24,6 +24,10 @@
 #include "v8checks.h"
 #include "zone.h"
 
+// srk
+extern "C" {
+struct uniqtype;
+}
 
 //
 // Most object types in the V8 JavaScript are described in this file.
@@ -291,6 +295,18 @@ static const ExtraICState kNoExtraICState = 0;
 
 // Instance size sentinel for objects of variable size.
 const int kVariableSizeSentinel = 0;
+
+// Minimum number of pointer-sized fields that any allocated object 
+// should have space for.
+const int kMinInstanceFields = 5; /* JSObject + two internal fields */
+
+#define ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(size_in_bytes) \
+	((((size_in_bytes) >> kPointerSizeLog2) >= kMinInstanceFields) ? \
+		(size_in_bytes) : \
+		(kMinInstanceFields << kPointerSizeLog2))
+
+#define ROUND_UP_TO_MIN_INSTANCE_SIZE_WORDS(size_in_words) \
+	(((size_in_words) >= kMinInstanceFields) ? (size_in_words) : kMinInstanceFields)
 
 const int kStubMajorKeyBits = 7;
 const int kStubMinorKeyBits = kBitsPerInt - kSmiTagSize - kStubMajorKeyBits;
@@ -1671,6 +1687,9 @@ class HeapObject: public Object {
   // Convenience method to get current isolate.
   inline Isolate* GetIsolate();
 
+  // Externalize the object 
+  bool MakeExternal(struct uniqtype *t);
+  
   // Converts an address to a HeapObject pointer.
   static inline HeapObject* FromAddress(Address address);
 
@@ -1832,7 +1851,7 @@ class HeapNumber: public HeapObject {
 #error Unknown byte ordering
 #endif
 
-  static const int kSize = kValueOffset + kDoubleSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kValueOffset + kDoubleSize);
   static const uint32_t kSignMask = 0x80000000u;
   static const uint32_t kExponentMask = 0x7ff00000u;
   static const uint32_t kMantissaMask = 0xfffffu;
@@ -2966,10 +2985,11 @@ class FixedArray: public FixedArrayBase {
   void CopyTo(int pos, FixedArray* dest, int dest_pos, int len);
 
   // Garbage collection support.
-  static int SizeFor(int length) { return kHeaderSize + length * kPointerSize; }
+  static int SizeFor(int length)
+  { return ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kHeaderSize + length * kPointerSize); }
 
   // Code Generation support.
-  static int OffsetOfElementAt(int index) { return SizeFor(index); }
+  static int OffsetOfElementAt(int index) { return kHeaderSize + index * kPointerSize; }
 
   // Garbage collection support.
   Object** RawFieldOfElementAt(int index) {
@@ -3047,7 +3067,7 @@ class FixedDoubleArray: public FixedArrayBase {
 
   // Garbage collection support.
   inline static int SizeFor(int length) {
-    return kHeaderSize + length * kDoubleSize;
+    return ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kHeaderSize + length * kDoubleSize);
   }
 
   // Gives access to raw memory which stores the array's data.
@@ -3139,11 +3159,11 @@ class ConstantPoolArray: public FixedArrayBase {
                             int number_of_code_ptr_entries,
                             int number_of_heap_ptr_entries,
                             int number_of_int32_entries) {
-    return RoundUp(OffsetAt(number_of_int64_entries,
+    return ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(RoundUp(OffsetAt(number_of_int64_entries,
                             number_of_code_ptr_entries,
                             number_of_heap_ptr_entries,
                             number_of_int32_entries),
-                   kPointerSize);
+                   kPointerSize));
   }
 
   // Code Generation support.
@@ -4665,7 +4685,7 @@ class ByteArray: public FixedArrayBase {
   inline int get_int(int index);
 
   static int SizeFor(int length) {
-    return OBJECT_POINTER_ALIGN(kHeaderSize + length);
+    return ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(OBJECT_POINTER_ALIGN(kHeaderSize + length));
   }
   // We use byte arrays for free blocks in the heap.  Given a desired size in
   // bytes that is a multiple of the word size and big enough to hold a byte
@@ -4694,7 +4714,7 @@ class ByteArray: public FixedArrayBase {
   DECLARE_VERIFIER(ByteArray)
 
   // Layout description.
-  static const int kAlignedSize = OBJECT_POINTER_ALIGN(kHeaderSize);
+  static const int kAlignedSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(OBJECT_POINTER_ALIGN(kHeaderSize));
 
   // Maximal memory consumption for a single ByteArray.
   static const int kMaxSize = 512 * MB;
@@ -4729,9 +4749,11 @@ class FreeSpace: public HeapObject {
   // Layout description.
   // Size is smi tagged when it is stored.
   static const int kSizeOffset = HeapObject::kHeaderSize;
-  static const int kHeaderSize = kSizeOffset + kPointerSize;
+  /* Want to make both this and FreeListNode fit in minimum instance size */
+  // static const int kHeaderSize = kSizeOffset + kPointerSize;
+  static const int kFreeSpaceHeaderSize = kSizeOffset + kPointerSize;
 
-  static const int kAlignedSize = OBJECT_POINTER_ALIGN(kHeaderSize);
+  static const int kAlignedSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(OBJECT_POINTER_ALIGN(kHeaderSize));
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(FreeSpace);
@@ -4781,7 +4803,7 @@ class ExternalArray: public FixedArrayBase {
   static const int kExternalPointerOffset =
       POINTER_SIZE_ALIGN(FixedArrayBase::kLengthOffset + kPointerSize);
   static const int kHeaderSize = kExternalPointerOffset + kPointerSize;
-  static const int kAlignedSize = OBJECT_POINTER_ALIGN(kHeaderSize);
+  static const int kAlignedSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(OBJECT_POINTER_ALIGN(kHeaderSize));
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(ExternalArray);
@@ -5061,7 +5083,7 @@ class FixedTypedArray: public FixedTypedArrayBase {
   }
 
   static inline int SizeFor(int length) {
-    return ElementOffset(length);
+    return ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(ElementOffset(length));
   }
 
   inline ElementType get_scalar(int index);
@@ -6499,7 +6521,7 @@ class Map: public HeapObject {
   static const int kCodeCacheOffset = kDescriptorsOffset + kPointerSize;
   static const int kDependentCodeOffset = kCodeCacheOffset + kPointerSize;
   static const int kBitField3Offset = kDependentCodeOffset + kPointerSize;
-  static const int kSize = kBitField3Offset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kBitField3Offset + kPointerSize);
 
   // Layout of pointer fields. Heap iteration code relies on them
   // being continuously allocated.
@@ -6665,7 +6687,7 @@ class Box : public Struct {
   DECLARE_VERIFIER(Box)
 
   static const int kValueOffset = HeapObject::kHeaderSize;
-  static const int kSize = kValueOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kValueOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(Box);
@@ -6789,7 +6811,7 @@ class Script: public Struct {
       kEvalFromSharedOffset + kPointerSize;
   static const int kFlagsOffset =
       kEvalFrominstructionsOffsetOffset + kPointerSize;
-  static const int kSize = kFlagsOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kFlagsOffset + kPointerSize);
 
  private:
   int GetLineNumberWithArray(int code_pos);
@@ -7301,7 +7323,7 @@ class SharedFunctionInfo: public HeapObject {
       kAstNodeCountOffset + kPointerSize;
 
   // Total size.
-  static const int kSize = kProfilerTicksOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kProfilerTicksOffset + kPointerSize);
 #else
   // The only reason to use smi fields instead of int fields
   // is to allow iteration without maps decoding during
@@ -7343,7 +7365,7 @@ class SharedFunctionInfo: public HeapObject {
       kAstNodeCountOffset + kIntSize;
 
   // Total size.
-  static const int kSize = kProfilerTicksOffset + kIntSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kProfilerTicksOffset + kIntSize);
 
 #endif
 
@@ -7494,7 +7516,7 @@ class JSGeneratorObject: public JSObject {
   static const int kOperandStackOffset = kContinuationOffset + kPointerSize;
   static const int kStackHandlerIndexOffset =
       kOperandStackOffset + kPointerSize;
-  static const int kSize = kStackHandlerIndexOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kStackHandlerIndexOffset + kPointerSize);
 
   // Resume mode, for use by runtime functions.
   enum ResumeMode { NEXT, THROW };
@@ -7534,7 +7556,7 @@ class JSModule: public JSObject {
   // Layout description.
   static const int kContextOffset = JSObject::kHeaderSize;
   static const int kScopeInfoOffset = kContextOffset + kPointerSize;
-  static const int kSize = kScopeInfoOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kScopeInfoOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(JSModule);
@@ -7690,7 +7712,7 @@ class JSFunction: public JSObject {
   static const int kLiteralsOffset = kContextOffset + kPointerSize;
   static const int kNonWeakFieldsEndOffset = kLiteralsOffset + kPointerSize;
   static const int kNextFunctionLinkOffset = kNonWeakFieldsEndOffset;
-  static const int kSize = kNextFunctionLinkOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kNextFunctionLinkOffset + kPointerSize);
 
   // Layout of the literals array.
   static const int kLiteralsPrefixSize = 1;
@@ -7735,7 +7757,7 @@ class JSGlobalProxy : public JSObject {
   // Layout description.
   static const int kNativeContextOffset = JSObject::kHeaderSize;
   static const int kHashOffset = kNativeContextOffset + kPointerSize;
-  static const int kSize = kHashOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kHashOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(JSGlobalProxy);
@@ -7796,7 +7818,7 @@ class JSGlobalObject: public GlobalObject {
   DECLARE_VERIFIER(JSGlobalObject)
 
   // Layout description.
-  static const int kSize = GlobalObject::kHeaderSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(GlobalObject::kHeaderSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(JSGlobalObject);
@@ -7830,7 +7852,7 @@ class JSBuiltinsObject: public GlobalObject {
   static const int kJSBuiltinsCodeOffset =
       GlobalObject::kHeaderSize + (kJSBuiltinsCount * kPointerSize);
   static const int kSize =
-      kJSBuiltinsCodeOffset + (kJSBuiltinsCount * kPointerSize);
+      ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kJSBuiltinsCodeOffset + (kJSBuiltinsCount * kPointerSize));
 
   static int OffsetOfFunctionWithId(Builtins::JavaScript id) {
     return kJSBuiltinsOffset + id * kPointerSize;
@@ -7860,7 +7882,7 @@ class JSValue: public JSObject {
 
   // Layout description.
   static const int kValueOffset = JSObject::kHeaderSize;
-  static const int kSize = kValueOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kValueOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(JSValue);
@@ -7946,7 +7968,7 @@ class JSDate: public JSObject {
   static const int kMinOffset = kHourOffset + kPointerSize;
   static const int kSecOffset = kMinOffset + kPointerSize;
   static const int kCacheStampOffset = kSecOffset + kPointerSize;
-  static const int kSize = kCacheStampOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kCacheStampOffset + kPointerSize);
 
  private:
   inline Object* DoGetField(FieldIndex index);
@@ -8003,7 +8025,7 @@ class JSMessageObject: public JSObject {
   static const int kStackFramesOffset = kScriptOffset + kPointerSize;
   static const int kStartPositionOffset = kStackFramesOffset + kPointerSize;
   static const int kEndPositionOffset = kStartPositionOffset + kPointerSize;
-  static const int kSize = kEndPositionOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kEndPositionOffset + kPointerSize);
 
   typedef FixedBodyDescriptor<HeapObject::kMapOffset,
                               kStackFramesOffset + kPointerSize,
@@ -8080,7 +8102,7 @@ class JSRegExp: public JSObject {
   DECLARE_VERIFIER(JSRegExp)
 
   static const int kDataOffset = JSObject::kHeaderSize;
-  static const int kSize = kDataOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kDataOffset + kPointerSize);
 
   // Indices in the data array.
   static const int kTagIndex = 0;
@@ -8230,7 +8252,7 @@ class CodeCache: public Struct {
   static const int kDefaultCacheOffset = HeapObject::kHeaderSize;
   static const int kNormalTypeCacheOffset =
       kDefaultCacheOffset + kPointerSize;
-  static const int kSize = kNormalTypeCacheOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kNormalTypeCacheOffset + kPointerSize);
 
  private:
   static void UpdateDefaultCache(
@@ -8314,7 +8336,7 @@ class PolymorphicCodeCache: public Struct {
   DECLARE_VERIFIER(PolymorphicCodeCache)
 
   static const int kCacheOffset = HeapObject::kHeaderSize;
-  static const int kSize = kCacheOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kCacheOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(PolymorphicCodeCache);
@@ -8367,7 +8389,7 @@ class TypeFeedbackInfo: public Struct {
 
   static const int kStorage1Offset = HeapObject::kHeaderSize;
   static const int kStorage2Offset = kStorage1Offset + kPointerSize;
-  static const int kSize = kStorage2Offset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kStorage2Offset + kPointerSize);
 
   // TODO(mvstanton): move these sentinel declarations to shared function info.
   // The object that indicates an uninitialized cache.
@@ -8571,7 +8593,7 @@ class AllocationSite: public Struct {
   static const int kDependentCodeOffset =
       kPretenureCreateCountOffset + kPointerSize;
   static const int kWeakNextOffset = kDependentCodeOffset + kPointerSize;
-  static const int kSize = kWeakNextOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kWeakNextOffset + kPointerSize);
 
   // During mark compact we need to take special care for the dependent code
   // field.
@@ -8596,7 +8618,7 @@ class AllocationSite: public Struct {
 class AllocationMemento: public Struct {
  public:
   static const int kAllocationSiteOffset = HeapObject::kHeaderSize;
-  static const int kSize = kAllocationSiteOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kAllocationSiteOffset + kPointerSize);
 
   DECL_ACCESSORS(allocation_site, Object)
 
@@ -8639,7 +8661,7 @@ class AliasedArgumentsEntry: public Struct {
   DECLARE_VERIFIER(AliasedArgumentsEntry)
 
   static const int kAliasedContextSlot = HeapObject::kHeaderSize;
-  static const int kSize = kAliasedContextSlot + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kAliasedContextSlot + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(AliasedArgumentsEntry);
@@ -8783,7 +8805,7 @@ class Name: public HeapObject {
 
   // Layout description.
   static const int kHashFieldOffset = HeapObject::kHeaderSize;
-  static const int kSize = kHashFieldOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kHashFieldOffset + kPointerSize);
 
   // Mask constant for checking if a name has a computed hash code
   // and if it is a string that is an array index.  The least significant bit
@@ -8863,7 +8885,7 @@ class Symbol: public Name {
   // Layout description.
   static const int kNameOffset = Name::kSize;
   static const int kFlagsOffset = kNameOffset + kPointerSize;
-  static const int kSize = kFlagsOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kFlagsOffset + kPointerSize);
 
   typedef FixedBodyDescriptor<kNameOffset, kFlagsOffset, kSize> BodyDescriptor;
 
@@ -9068,7 +9090,7 @@ class String: public Name {
 
   // Layout description.
   static const int kLengthOffset = Name::kSize;
-  static const int kSize = kLengthOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kLengthOffset + kPointerSize);
 
   // Maximum number of characters to consider when trying to convert a string
   // value into an array index.
@@ -9085,7 +9107,7 @@ class String: public Name {
   static const int kEmptyStringHash = kIsNotArrayIndexMask;
 
   // Maximal string length.
-  static const int kMaxLength = (1 << 28) - 16;
+  static const int kMaxLength = (1 << 28) /* - 16 */ - 40;
 
   // Max length for computing hash. For strings longer than this limit the
   // string length is used as the hash value.
@@ -9226,7 +9248,8 @@ class SeqOneByteString: public SeqString {
 
   // Computes the size for an AsciiString instance of a given length.
   static int SizeFor(int length) {
-    return OBJECT_POINTER_ALIGN(kHeaderSize + length * kCharSize);
+    int usable_size = OBJECT_POINTER_ALIGN(kHeaderSize + length * kCharSize);
+    return ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(usable_size);
   }
 
   // Maximal memory usage for a single sequential ASCII string.
@@ -9266,7 +9289,7 @@ class SeqTwoByteString: public SeqString {
 
   // Computes the size for a TwoByteString instance of a given length.
   static int SizeFor(int length) {
-    return OBJECT_POINTER_ALIGN(kHeaderSize + length * kShortSize);
+    return ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(OBJECT_POINTER_ALIGN(kHeaderSize + length * kShortSize));
   }
 
   // Maximal memory usage for a single sequential two-byte string.
@@ -9314,7 +9337,7 @@ class ConsString: public String {
   // Layout description.
   static const int kFirstOffset = POINTER_SIZE_ALIGN(String::kSize);
   static const int kSecondOffset = kFirstOffset + kPointerSize;
-  static const int kSize = kSecondOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kSecondOffset + kPointerSize);
 
   // Minimum length for a cons string.
   static const int kMinLength = 13;
@@ -9358,7 +9381,7 @@ class SlicedString: public String {
   // Layout description.
   static const int kParentOffset = POINTER_SIZE_ALIGN(String::kSize);
   static const int kOffsetOffset = kParentOffset + kPointerSize;
-  static const int kSize = kOffsetOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kOffsetOffset + kPointerSize);
 
   // Minimum length for a sliced string.
   static const int kMinLength = 13;
@@ -9392,7 +9415,7 @@ class ExternalString: public String {
   static const int kResourceOffset = POINTER_SIZE_ALIGN(String::kSize);
   static const int kShortSize = kResourceOffset + kPointerSize;
   static const int kResourceDataOffset = kResourceOffset + kPointerSize;
-  static const int kSize = kResourceDataOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kResourceDataOffset + kPointerSize);
 
   static const int kMaxShortLength =
       (kShortSize - SeqString::kHeaderSize) / kCharSize;
@@ -9653,7 +9676,7 @@ class Oddball: public HeapObject {
   static const int kToStringOffset = HeapObject::kHeaderSize;
   static const int kToNumberOffset = kToStringOffset + kPointerSize;
   static const int kKindOffset = kToNumberOffset + kPointerSize;
-  static const int kSize = kKindOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kKindOffset + kPointerSize);
 
   static const byte kFalse = 0;
   static const byte kTrue = 1;
@@ -9703,7 +9726,7 @@ class Cell: public HeapObject {
 
   // Layout description.
   static const int kValueOffset = HeapObject::kHeaderSize;
-  static const int kSize = kValueOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kValueOffset + kPointerSize);
 
   typedef FixedBodyDescriptor<kValueOffset,
                               kValueOffset + kPointerSize,
@@ -9753,7 +9776,7 @@ class PropertyCell: public Cell {
   // Layout description.
   static const int kTypeOffset = kValueOffset + kPointerSize;
   static const int kDependentCodeOffset = kTypeOffset + kPointerSize;
-  static const int kSize = kDependentCodeOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kDependentCodeOffset + kPointerSize);
 
   static const int kPointerFieldsBeginOffset = kValueOffset;
   static const int kPointerFieldsEndOffset = kDependentCodeOffset;
@@ -9837,7 +9860,7 @@ class JSProxy: public JSReceiver {
   static const int kHandlerOffset = HeapObject::kHeaderSize;
   static const int kHashOffset = kHandlerOffset + kPointerSize;
   static const int kPaddingOffset = kHashOffset + kPointerSize;
-  static const int kSize = JSObject::kHeaderSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize);
   static const int kHeaderSize = kPaddingOffset;
   static const int kPaddingSize = kSize - kPaddingOffset;
 
@@ -9904,7 +9927,7 @@ class JSFunctionProxy: public JSProxy {
   static const int kCallTrapOffset = JSProxy::kPaddingOffset;
   static const int kConstructTrapOffset = kCallTrapOffset + kPointerSize;
   static const int kPaddingOffset = kConstructTrapOffset + kPointerSize;
-  static const int kSize = JSFunction::kSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSFunction::kSize);
   static const int kPaddingSize = kSize - kPaddingOffset;
 
   STATIC_CHECK(kPaddingSize >= 0);
@@ -9932,7 +9955,7 @@ class JSSet: public JSObject {
   DECLARE_VERIFIER(JSSet)
 
   static const int kTableOffset = JSObject::kHeaderSize;
-  static const int kSize = kTableOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kTableOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(JSSet);
@@ -9953,7 +9976,7 @@ class JSMap: public JSObject {
   DECLARE_VERIFIER(JSMap)
 
   static const int kTableOffset = JSObject::kHeaderSize;
-  static const int kSize = kTableOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kTableOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(JSMap);
@@ -10005,7 +10028,7 @@ class OrderedHashTableIterator: public JSObject {
   static const int kKindOffset = kCountOffset + kPointerSize;
   static const int kNextIteratorOffset = kKindOffset + kPointerSize;
   static const int kPreviousIteratorOffset = kNextIteratorOffset + kPointerSize;
-  static const int kSize = kPreviousIteratorOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kPreviousIteratorOffset + kPointerSize);
 
   enum Kind {
     kKindKeys = 1,
@@ -10114,7 +10137,7 @@ class JSWeakCollection: public JSObject {
 
   static const int kTableOffset = JSObject::kHeaderSize;
   static const int kNextOffset = kTableOffset + kPointerSize;
-  static const int kSize = kNextOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kNextOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(JSWeakCollection);
@@ -10189,7 +10212,7 @@ class JSArrayBuffer: public JSObject {
   static const int kFlagOffset = kByteLengthOffset + kPointerSize;
   static const int kWeakNextOffset = kFlagOffset + kPointerSize;
   static const int kWeakFirstViewOffset = kWeakNextOffset + kPointerSize;
-  static const int kSize = kWeakFirstViewOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kWeakFirstViewOffset + kPointerSize);
 
   static const int kSizeWithInternalFields =
       kSize + v8::ArrayBuffer::kInternalFieldCount * kPointerSize;
@@ -10257,7 +10280,7 @@ class JSTypedArray: public JSArrayBufferView {
   DECLARE_VERIFIER(JSTypedArray)
 
   static const int kLengthOffset = kViewSize + kPointerSize;
-  static const int kSize = kLengthOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kLengthOffset + kPointerSize);
 
   static const int kSizeWithInternalFields =
       kSize + v8::ArrayBufferView::kInternalFieldCount * kPointerSize;
@@ -10282,7 +10305,7 @@ class JSDataView: public JSArrayBufferView {
   DECLARE_PRINTER(JSDataView)
   DECLARE_VERIFIER(JSDataView)
 
-  static const int kSize = kViewSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kViewSize);
 
   static const int kSizeWithInternalFields =
       kSize + v8::ArrayBufferView::kInternalFieldCount * kPointerSize;
@@ -10317,7 +10340,7 @@ class Foreign: public HeapObject {
   // Layout description.
 
   static const int kForeignAddressOffset = HeapObject::kHeaderSize;
-  static const int kSize = kForeignAddressOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kForeignAddressOffset + kPointerSize);
 
   STATIC_CHECK(kForeignAddressOffset == Internals::kForeignAddressOffset);
 
@@ -10382,7 +10405,7 @@ class JSArray: public JSObject {
 
   // Layout description.
   static const int kLengthOffset = JSObject::kHeaderSize;
-  static const int kSize = kLengthOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kLengthOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(JSArray);
@@ -10404,7 +10427,7 @@ class JSRegExpResult: public JSArray {
   // Offsets of object fields.
   static const int kIndexOffset = JSArray::kSize;
   static const int kInputOffset = kIndexOffset + kPointerSize;
-  static const int kSize = kInputOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kInputOffset + kPointerSize);
   // Indices of in-object properties.
   static const int kIndexIndex = 0;
   static const int kInputIndex = 1;
@@ -10448,7 +10471,7 @@ class AccessorInfo: public Struct {
   static const int kNameOffset = HeapObject::kHeaderSize;
   static const int kFlagOffset = kNameOffset + kPointerSize;
   static const int kExpectedReceiverTypeOffset = kFlagOffset + kPointerSize;
-  static const int kSize = kExpectedReceiverTypeOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kExpectedReceiverTypeOffset + kPointerSize);
 
  private:
   // Bit positions in flag.
@@ -10545,7 +10568,7 @@ class DeclaredAccessorDescriptor: public Struct {
   DECLARE_VERIFIER(DeclaredAccessorDescriptor)
 
   static const int kSerializedDataOffset = HeapObject::kHeaderSize;
-  static const int kSize = kSerializedDataOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kSerializedDataOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(DeclaredAccessorDescriptor);
@@ -10563,7 +10586,7 @@ class DeclaredAccessorInfo: public AccessorInfo {
   DECLARE_VERIFIER(DeclaredAccessorInfo)
 
   static const int kDescriptorOffset = AccessorInfo::kSize;
-  static const int kSize = kDescriptorOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kDescriptorOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(DeclaredAccessorInfo);
@@ -10594,7 +10617,7 @@ class ExecutableAccessorInfo: public AccessorInfo {
   static const int kGetterOffset = AccessorInfo::kSize;
   static const int kSetterOffset = kGetterOffset + kPointerSize;
   static const int kDataOffset = kSetterOffset + kPointerSize;
-  static const int kSize = kDataOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kDataOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(ExecutableAccessorInfo);
@@ -10656,7 +10679,7 @@ class AccessorPair: public Struct {
   static const int kGetterOffset = HeapObject::kHeaderSize;
   static const int kSetterOffset = kGetterOffset + kPointerSize;
   static const int kAccessFlagsOffset = kSetterOffset + kPointerSize;
-  static const int kSize = kAccessFlagsOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kAccessFlagsOffset + kPointerSize);
 
  private:
   static const int kAllCanReadBit = 0;
@@ -10691,7 +10714,7 @@ class AccessCheckInfo: public Struct {
   static const int kNamedCallbackOffset   = HeapObject::kHeaderSize;
   static const int kIndexedCallbackOffset = kNamedCallbackOffset + kPointerSize;
   static const int kDataOffset = kIndexedCallbackOffset + kPointerSize;
-  static const int kSize = kDataOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kDataOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(AccessCheckInfo);
@@ -10719,7 +10742,7 @@ class InterceptorInfo: public Struct {
   static const int kDeleterOffset = kQueryOffset + kPointerSize;
   static const int kEnumeratorOffset = kDeleterOffset + kPointerSize;
   static const int kDataOffset = kEnumeratorOffset + kPointerSize;
-  static const int kSize = kDataOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kDataOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(InterceptorInfo);
@@ -10739,7 +10762,7 @@ class CallHandlerInfo: public Struct {
 
   static const int kCallbackOffset = HeapObject::kHeaderSize;
   static const int kDataOffset = kCallbackOffset + kPointerSize;
-  static const int kSize = kDataOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kDataOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(CallHandlerInfo);
@@ -10818,7 +10841,7 @@ class FunctionTemplateInfo: public TemplateInfo {
       kInstanceCallHandlerOffset + kPointerSize;
   static const int kFlagOffset = kAccessCheckInfoOffset + kPointerSize;
   static const int kLengthOffset = kFlagOffset + kPointerSize;
-  static const int kSize = kLengthOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kLengthOffset + kPointerSize);
 
   // Returns true if |object| is an instance of this function template.
   bool IsTemplateFor(Object* object);
@@ -10851,7 +10874,7 @@ class ObjectTemplateInfo: public TemplateInfo {
   static const int kConstructorOffset = TemplateInfo::kHeaderSize;
   static const int kInternalFieldCountOffset =
       kConstructorOffset + kPointerSize;
-  static const int kSize = kInternalFieldCountOffset + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kInternalFieldCountOffset + kPointerSize);
 };
 
 
@@ -10868,7 +10891,7 @@ class SignatureInfo: public Struct {
 
   static const int kReceiverOffset = Struct::kHeaderSize;
   static const int kArgsOffset     = kReceiverOffset + kPointerSize;
-  static const int kSize           = kArgsOffset + kPointerSize;
+  static const int kSize           = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kArgsOffset + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(SignatureInfo);
@@ -10886,7 +10909,7 @@ class TypeSwitchInfo: public Struct {
   DECLARE_VERIFIER(TypeSwitchInfo)
 
   static const int kTypesOffset = Struct::kHeaderSize;
-  static const int kSize        = kTypesOffset + kPointerSize;
+  static const int kSize        = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kTypesOffset + kPointerSize);
 };
 
 
@@ -10937,7 +10960,7 @@ class DebugInfo: public Struct {
       kPatchedCodeIndex + kPointerSize;
   static const int kBreakPointsStateIndex =
       kActiveBreakPointsCountIndex + kPointerSize;
-  static const int kSize = kBreakPointsStateIndex + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kBreakPointsStateIndex + kPointerSize);
 
  private:
   static const int kNoBreakPointInfo = -1;
@@ -10988,7 +11011,7 @@ class BreakPointInfo: public Struct {
       kSourcePositionIndex + kPointerSize;
   static const int kBreakPointObjectsIndex =
       kStatementPositionIndex + kPointerSize;
-  static const int kSize = kBreakPointObjectsIndex + kPointerSize;
+  static const int kSize = ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(kBreakPointObjectsIndex + kPointerSize);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(BreakPointInfo);

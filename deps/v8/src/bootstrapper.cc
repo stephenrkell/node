@@ -470,7 +470,7 @@ Handle<JSFunction> Genesis::CreateEmptyFunction(Isolate* isolate) {
     Handle<JSFunction> object_fun = factory->NewFunctionWithPrototype(
         object_name, factory->null_value());
     Handle<Map> object_function_map =
-        factory->NewMap(JS_OBJECT_TYPE, JSObject::kHeaderSize);
+        factory->NewMap(JS_OBJECT_TYPE, ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize));
     object_fun->set_initial_map(*object_function_map);
     object_function_map->set_constructor(*object_fun);
 
@@ -1013,17 +1013,23 @@ void Genesis::InitializeGlobal(Handle<GlobalObject> inner_global,
     Handle<Map> proto_map = Map::Copy(initial_map);
     proto_map->set_prototype(native_context()->initial_object_prototype());
     Handle<JSObject> proto = factory->NewJSObjectFromMap(proto_map);
+    ASSERT(proto->IsNull() || proto->IsJSReceiver());
     proto->InObjectPropertyAtPut(JSRegExp::kSourceFieldIndex,
                                  heap->query_colon_string());
+    ASSERT(proto->IsNull() || proto->IsJSReceiver());
     proto->InObjectPropertyAtPut(JSRegExp::kGlobalFieldIndex,
                                  heap->false_value());
+    ASSERT(proto->IsNull() || proto->IsJSReceiver());
     proto->InObjectPropertyAtPut(JSRegExp::kIgnoreCaseFieldIndex,
                                  heap->false_value());
+    ASSERT(proto->IsNull() || proto->IsJSReceiver());
     proto->InObjectPropertyAtPut(JSRegExp::kMultilineFieldIndex,
                                  heap->false_value());
+    ASSERT(proto->IsNull() || proto->IsJSReceiver());
     proto->InObjectPropertyAtPut(JSRegExp::kLastIndexFieldIndex,
                                  Smi::FromInt(0),
                                  SKIP_WRITE_BARRIER);  // It's a Smi.
+    ASSERT(proto->IsNull() || proto->IsJSReceiver());
     initial_map->set_prototype(*proto);
     factory->SetRegExpIrregexpData(Handle<JSRegExp>::cast(proto),
                                    JSRegExp::IRREGEXP, factory->empty_string(),
@@ -1099,11 +1105,12 @@ void Genesis::InitializeGlobal(Handle<GlobalObject> inner_global,
     Handle<Code> code(isolate->builtins()->builtin(Builtins::kIllegal));
     Handle<JSObject> prototype(
         JSObject::cast(native_context()->object_function()->prototype()));
+    ASSERT(!prototype->IsMap());
 
     Handle<JSFunction> function =
         factory->NewFunctionWithPrototype(arguments_string,
                                           JS_OBJECT_TYPE,
-                                          JSObject::kHeaderSize,
+                                          ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize),
                                           prototype,
                                           code,
                                           false);
@@ -1246,7 +1253,7 @@ void Genesis::InitializeGlobal(Handle<GlobalObject> inner_global,
     Handle<JSFunction> context_extension_fun =
         factory->NewFunction(factory->empty_string(),
                              JS_CONTEXT_EXTENSION_OBJECT_TYPE,
-                             JSObject::kHeaderSize,
+                             ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize),
                              code,
                              true);
 
@@ -1264,7 +1271,7 @@ void Genesis::InitializeGlobal(Handle<GlobalObject> inner_global,
             Builtins::kHandleApiCallAsFunction));
     Handle<JSFunction> delegate =
         factory->NewFunction(factory->empty_string(), JS_OBJECT_TYPE,
-                             JSObject::kHeaderSize, code, true);
+                             ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize), code, true);
     native_context()->set_call_as_function_delegate(*delegate);
     delegate->shared()->DontAdaptArguments();
   }
@@ -1276,7 +1283,7 @@ void Genesis::InitializeGlobal(Handle<GlobalObject> inner_global,
             Builtins::kHandleApiCallAsConstructor));
     Handle<JSFunction> delegate =
         factory->NewFunction(factory->empty_string(), JS_OBJECT_TYPE,
-                             JSObject::kHeaderSize, code, true);
+                             ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize), code, true);
     native_context()->set_call_as_constructor_delegate(*delegate);
     delegate->shared()->DontAdaptArguments();
   }
@@ -1355,7 +1362,7 @@ void Genesis::InitializeExperimentalGlobal() {
         factory()->NewJSObject(isolate()->object_function(), TENURED);
     Handle<JSFunction> generator_function_prototype =
         InstallFunction(builtins, "GeneratorFunctionPrototype",
-                        JS_FUNCTION_TYPE, JSFunction::kHeaderSize,
+                        JS_FUNCTION_TYPE, ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSFunction::kHeaderSize),
                         generator_object_prototype, Builtins::kIllegal,
                         false, false);
     InstallFunction(builtins, "GeneratorFunction",

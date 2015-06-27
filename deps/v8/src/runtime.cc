@@ -2802,7 +2802,7 @@ static Handle<JSFunction> InstallBuiltin(Isolate* isolate,
       isolate->factory()->NewFunction(MaybeHandle<Object>(),
                                       key,
                                       JS_OBJECT_TYPE,
-                                      JSObject::kHeaderSize,
+                                      ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize),
                                       code,
                                       false);
   optimized->shared()->DontAdaptArguments();

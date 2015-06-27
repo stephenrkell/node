@@ -397,7 +397,7 @@ DEFINE_bool(builtins_in_stack_traces, false,
 DEFINE_bool(disable_native_files, false, "disable builtin natives files")
 
 // builtins-ia32.cc
-DEFINE_bool(inline_new, true, "use fast inline allocation")
+DEFINE_bool(inline_new, /* true */ false, "use fast inline allocation")
 
 // codegen-ia32.cc / codegen-arm.cc
 DEFINE_bool(trace_codegen, false,

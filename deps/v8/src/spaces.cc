@@ -555,6 +555,8 @@ void MemoryChunk::InsertAfter(MemoryChunk* other) {
   set_prev_chunk(other);
   other_next->set_prev_chunk(this);
   other->set_next_chunk(this);
+  fprintf(stderr, "Inserted a memory chunk %p-%p in space %p\n", area_start_, area_end_,
+    owner());
 }
 
 
@@ -946,6 +948,7 @@ PagedSpace::PagedSpace(Heap* heap,
 
 
 bool PagedSpace::SetUp() {
+  fprintf(stderr, "Set up paged space at %p\n", this);
   return true;
 }
 
@@ -1248,6 +1251,9 @@ bool NewSpace::SetUp(int reserved_semispace_capacity,
   object_expected_ = reinterpret_cast<uintptr_t>(start_) | kHeapObjectTag;
 
   ResetAllocationInfo();
+
+  fprintf(stderr, "Set up new space with start %p, maximum size %ld\n", 
+    start_, (long) maximum_semispace_capacity);
 
   return true;
 }
@@ -1995,7 +2001,7 @@ void FreeListNode::set_size(Heap* heap, int size_in_bytes) {
   // If the block is too small (eg, one or two words), to hold both a size
   // field and a next pointer, we give it a filler map that gives it the
   // correct size.
-  if (size_in_bytes > FreeSpace::kHeaderSize) {
+  if (size_in_bytes > FreeSpace::kFreeSpaceHeaderSize) {
     // Can't use FreeSpace::cast because it fails during deserialization.
     // We have to set the size first with a release store before we store
     // the map because a concurrent store buffer scan on scavenge must not
@@ -2007,6 +2013,10 @@ void FreeListNode::set_size(Heap* heap, int size_in_bytes) {
     set_map_no_write_barrier(heap->raw_unchecked_one_pointer_filler_map());
   } else if (size_in_bytes == 2 * kPointerSize) {
     set_map_no_write_barrier(heap->raw_unchecked_two_pointer_filler_map());
+  } else if (size_in_bytes == 3 * kPointerSize) {
+    set_map_no_write_barrier(heap->raw_unchecked_three_pointer_filler_map());
+  } else if (size_in_bytes == 4 * kPointerSize) {
+    set_map_no_write_barrier(heap->raw_unchecked_four_pointer_filler_map());
   } else {
     UNREACHABLE();
   }
@@ -2017,7 +2027,7 @@ void FreeListNode::set_size(Heap* heap, int size_in_bytes) {
 
 FreeListNode* FreeListNode::next() {
   ASSERT(IsFreeListNode(this));
-  if (map() == GetHeap()->raw_unchecked_free_space_map()) {
+  if (map() == NULL || map() == GetHeap()->raw_unchecked_free_space_map()) {
     ASSERT(map() == NULL || Size() >= kNextOffset + kPointerSize);
     return reinterpret_cast<FreeListNode*>(
         Memory::Address_at(address() + kNextOffset));
@@ -2030,7 +2040,7 @@ FreeListNode* FreeListNode::next() {
 
 FreeListNode** FreeListNode::next_address() {
   ASSERT(IsFreeListNode(this));
-  if (map() == GetHeap()->raw_unchecked_free_space_map()) {
+  if (map() == NULL || map() == GetHeap()->raw_unchecked_free_space_map()) {
     ASSERT(Size() >= kNextOffset + kPointerSize);
     return reinterpret_cast<FreeListNode**>(address() + kNextOffset);
   } else {
@@ -2044,7 +2054,7 @@ void FreeListNode::set_next(FreeListNode* next) {
   // While we are booting the VM the free space map will actually be null.  So
   // we have to make sure that we don't try to use it for anything at that
   // stage.
-  if (map() == GetHeap()->raw_unchecked_free_space_map()) {
+  if (map() == NULL || map() == GetHeap()->raw_unchecked_free_space_map()) {
     ASSERT(map() == NULL || Size() >= kNextOffset + kPointerSize);
     NoBarrier_Store(reinterpret_cast<AtomicWord*>(address() + kNextOffset),
                     reinterpret_cast<AtomicWord>(next));
@@ -2297,7 +2307,7 @@ FreeListNode* FreeList::FindNodeFor(int size_in_bytes, int* node_size) {
       break;
     }
 
-    ASSERT((*cur)->map() == heap_->raw_unchecked_free_space_map());
+    ASSERT((*cur)->map() == NULL || (*cur)->map() == heap_->raw_unchecked_free_space_map());
     FreeSpace* cur_as_free_space = reinterpret_cast<FreeSpace*>(*cur);
     int size = cur_as_free_space->Size();
     if (size >= size_in_bytes) {
@@ -2426,6 +2436,7 @@ HeapObject* FreeList::Allocate(int size_in_bytes) {
     owner_->SetTopAndLimit(NULL, NULL);
   }
 
+  SPACES_ZERO_PADDING(new_node);
   return new_node;
 }
 
@@ -2468,7 +2479,7 @@ intptr_t FreeListCategory::SumFreeList() {
   intptr_t sum = 0;
   FreeListNode* cur = top();
   while (cur != NULL) {
-    ASSERT(cur->map() == cur->GetHeap()->raw_unchecked_free_space_map());
+    ASSERT(cur->map() == NULL || cur->map() == cur->GetHeap()->raw_unchecked_free_space_map());
     FreeSpace* cur_as_free_space = reinterpret_cast<FreeSpace*>(cur);
     sum += cur_as_free_space->nobarrier_size();
     cur = cur->next();

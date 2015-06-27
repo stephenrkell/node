@@ -55,6 +55,11 @@
 
 #endif  // V8_OS_WIN
 
+// srk
+extern "C" {
+struct uniqtype;
+}
+
 /**
  * The v8 JavaScript engine.
  */
@@ -122,6 +127,9 @@ class RawOperationDescriptor;
 class CallHandlerHelper;
 class EscapableHandleScope;
 template<typename T> class ReturnValue;
+// srk
+bool ExternalizeObject(Handle<v8::Object> v, struct uniqtype *t);
+bool PrintObject(Handle<v8::Object> v);
 
 namespace internal {
 class Arguments;
@@ -134,6 +142,7 @@ class PropertyCallbackArguments;
 class FunctionCallbackArguments;
 class GlobalHandles;
 }
+
 
 
 /**
@@ -320,7 +329,6 @@ template <class T> class Handle {
 
   T* val_;
 };
-
 
 /**
  * A light-weight stack-allocated object handle.  All operations
@@ -5519,7 +5527,7 @@ class Internals {
   // the implementation of v8.
   static const int kHeapObjectMapOffset = 0;
   static const int kMapInstanceTypeOffset = 1 * kApiPointerSize + kApiIntSize;
-  static const int kStringResourceOffset = 3 * kApiPointerSize;
+  static const int kStringResourceOffset =/* 3 */ 6 * kApiPointerSize;
 
   static const int kOddballKindOffset = 3 * kApiPointerSize;
   static const int kForeignAddressOffset = kApiPointerSize;
@@ -5534,11 +5542,11 @@ class Internals {
 
   static const int kIsolateEmbedderDataOffset = 0 * kApiPointerSize;
   static const int kIsolateRootsOffset = 5 * kApiPointerSize;
-  static const int kUndefinedValueRootIndex = 5;
-  static const int kNullValueRootIndex = 7;
-  static const int kTrueValueRootIndex = 8;
-  static const int kFalseValueRootIndex = 9;
-  static const int kEmptyStringRootIndex = 162;
+  static const int kUndefinedValueRootIndex = 7;
+  static const int kNullValueRootIndex = 9;
+  static const int kTrueValueRootIndex = 10;
+  static const int kFalseValueRootIndex = 11;
+  static const int kEmptyStringRootIndex = 164;
 
   static const int kNodeClassIdOffset = 1 * kApiPointerSize;
   static const int kNodeFlagsOffset = 1 * kApiPointerSize + 3;

@@ -29,6 +29,8 @@ namespace internal {
   V(Map, free_space_map, FreeSpaceMap)                                         \
   V(Map, one_pointer_filler_map, OnePointerFillerMap)                          \
   V(Map, two_pointer_filler_map, TwoPointerFillerMap)                          \
+  V(Map, three_pointer_filler_map, ThreePointerFillerMap)                      \
+  V(Map, four_pointer_filler_map, FourPointerFillerMap)                        \
   /* Cluster the most popular ones in a few cache lines here at the top.    */ \
   V(Smi, store_buffer_top, StoreBufferTop)                                     \
   V(Oddball, undefined_value, UndefinedValue)                                  \
@@ -220,6 +222,8 @@ namespace internal {
   V(free_space_map)                       \
   V(one_pointer_filler_map)               \
   V(two_pointer_filler_map)               \
+  V(three_pointer_filler_map)             \
+  V(four_pointer_filler_map)              \
   V(undefined_value)                      \
   V(the_hole_value)                       \
   V(null_value)                           \
@@ -706,10 +710,10 @@ class Heap {
 
   // Sloppy mode arguments object size.
   static const int kSloppyArgumentsObjectSize =
-      JSObject::kHeaderSize + 2 * kPointerSize;
+      ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize + 2 * kPointerSize);
   // Strict mode arguments has no callee so it is smaller.
   static const int kStrictArgumentsObjectSize =
-      JSObject::kHeaderSize + 1 * kPointerSize;
+      ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize + 1 * kPointerSize);
   // Indicies for direct access into argument objects.
   static const int kArgumentsLengthIndex = 0;
   // callee is only valid in sloppy mode.

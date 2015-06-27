@@ -1502,7 +1502,7 @@ class FreeListNode: public HeapObject {
   }
 
  private:
-  static const int kNextOffset = POINTER_SIZE_ALIGN(FreeSpace::kHeaderSize);
+  static const int kNextOffset = POINTER_SIZE_ALIGN(FreeSpace::kFreeSpaceHeaderSize);
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(FreeListNode);
 };
@@ -1864,9 +1864,12 @@ class PagedSpace : public Space {
     SetTopAndLimit(NULL, NULL);
   }
 
+  private:
   void Allocate(int bytes) {
     accounting_stats_.AllocateBytes(bytes);
   }
+  friend class FreeList;
+  public:
 
   void IncreaseCapacity(int size);
 

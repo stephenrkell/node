@@ -24,6 +24,7 @@ using v8::Boolean;
 using v8::Object;
 using v8::Value;
 using v8::NumberObject;
+using v8::StringObject;
 using v8::ObjectTemplate;
 using v8::Persistent;
 using v8::HandleScope;
@@ -231,6 +232,7 @@ int visit_one_obj_phdr(struct dl_phdr_info *info, size_t size, void *data)
         
         iterate_global_dynamic_syms(
             p_dynsym,
+            /* FIXME: use nchain instead of this hack! */
             ((char*) p_dynstr - (char*) p_dynsym) / sizeof (ElfW(Sym)),
             (char*) info->dlpi_addr,
             p_dynstr,
@@ -430,7 +432,12 @@ void AllocsBasePrinter(const FunctionCallbackInfo<Value>& info)
 }
 
 void AllocsFunctionPrinter(const FunctionCallbackInfo<Value>& args) {
-    args.GetReturnValue().Set(FIXED_ONE_BYTE_STRING(args.GetIsolate(), "native function"));
+    void *callee = DEMANGLE_POINTER_INTERNAL(args.This()/*.As<Object>()*/
+      ->GetAlignedPointerFromInternalField(0));
+    struct uniqtype *callee_uniqtype = v8_get_outermost_uniqtype(callee);
+    args.GetReturnValue().Set(
+      String::Concat(FIXED_ONE_BYTE_STRING(args.GetIsolate(), "native function, uniqtype "),
+        FIXED_ONE_BYTE_STRING(args.GetIsolate(), callee_uniqtype ? callee_uniqtype->name : "(none)")));
 }
 
 void AllocsFunctionCaller(const FunctionCallbackInfo<Value>& args) {
@@ -464,7 +471,7 @@ void AllocsFunctionCaller(const FunctionCallbackInfo<Value>& args) {
    * This is a simple API mapping! Want it to be user-customisable!
    */
 
-  unsigned argcount = args.Length();
+  unsigned call_arg_count = args.Length();
   assert(args.This()->InternalFieldCount() >= 2);
   /* Note that the callee function, from our point of view, is the receiver 
    * of the call-as-function, i.e. the "This". The Callee() is just the Function, 
@@ -474,20 +481,23 @@ void AllocsFunctionCaller(const FunctionCallbackInfo<Value>& args) {
   if (!callee_uniqtype) callee_uniqtype = &__liballocs_uniqtype_of_typeless_functions;
   assert(UNIQTYPE_IS_SUBPROGRAM(callee_uniqtype));
   
-  ffi_type **ffi_type_buf = (ffi_type **) alloca(argcount * sizeof (ffi_type *));
+  ffi_type **ffi_type_buf = (ffi_type **) alloca(call_arg_count * sizeof (ffi_type *));
   // do we need temporaries? not yet
-  void **ffi_arg_buf = (void **) alloca(argcount * sizeof (void *));
-  void **ffi_arg_values = (void **) alloca(argcount * sizeof (void *));
+  void **ffi_arg_buf = (void **) alloca(call_arg_count * sizeof (void *));
+  void **ffi_arg_values = (void **) alloca(call_arg_count * sizeof (void *));
   /* FIXME: non-wordsize args */
 
-  for (unsigned i_arg = 0; i_arg < argcount; ++i_arg)
+  unsigned uniqtype_arg_count = UNIQTYPE_SUBPROGRAM_ARG_COUNT(callee_uniqtype);
+  for (unsigned i_arg = 0; i_arg < call_arg_count; ++i_arg)
   {
-    /* nmemb is number of args + 1 */
-    struct uniqtype *arg_type = (i_arg + 1u < callee_uniqtype->nmemb)
+    struct uniqtype *arg_type = (i_arg < uniqtype_arg_count)
      ? callee_uniqtype->contained[i_arg + 1u].ptr
      : NULL;
     ffi_type_buf[i_arg] = ffi_type_for_uniqtype(arg_type);
-    ffi_arg_values[i_arg] = v8_make_uniqtype_instance(env, args[i_arg], arg_type);
+    fprintf(stderr, "Trying to get a value of uniqtype %s for argument %u\n", 
+      !arg_type ? "(no uniqtype)" : arg_type->name ? arg_type->name : "(no name)", i_arg);
+    fflush(stderr);
+    ffi_arg_values[i_arg] = (void*) v8_make_uniqtype_instance(env, args[i_arg], arg_type);
     ffi_arg_buf[i_arg] = &ffi_arg_values[i_arg];
   }
 
@@ -500,7 +510,7 @@ void AllocsFunctionCaller(const FunctionCallbackInfo<Value>& args) {
   
   // Prepare the ffi_cif structure
   if ((status = ffi_prep_cif(&cif, FFI_DEFAULT_ABI,
-          argcount, result_type, ffi_type_buf)) != FFI_OK)
+          call_arg_count, result_type, ffi_type_buf)) != FFI_OK)
   {
       // Handle the ffi_status error.
       assert(false);
@@ -508,7 +518,7 @@ void AllocsFunctionCaller(const FunctionCallbackInfo<Value>& args) {
 
   // Invoke the function.
   //fprintf(stderr, "FFI-calling function at %p with arguments [", callee);
-  for (unsigned i = 0; i < argcount; i++)
+  for (unsigned i = 0; i < call_arg_count; i++)
   {
       //if (i != 0) fprintf(stderr, ", ");
       //fprintf(stderr, "<in ffi_arg buf at %p, pointing to %p, word value %p>\n",
@@ -618,6 +628,51 @@ Local<Value> v8_get_object_typeless(Environment *env, void *ptr)
   return Object::New(env->isolate());
 }
 
+Local<Value> v8_get_object_template_for_type(Isolate *i, struct uniqtype *t)
+{
+    if (UNIQTYPE_IS_ARRAY(t))// && !UNIQTYPE_IS_POINTER_TYPE(t))
+    {
+      /* We can create a new object using the array template. */
+      Local<ObjectTemplate> array_l = Local<ObjectTemplate>::New(i, allocs_array_template);
+      return LOCAL_DEREFABLE_AS(Object, array_l);
+    }
+    //else if (t->is_array && UNIQTYPE_IS_POINTER_TYPE(UNIQTYPE_POINTEE_TYPE(t)))
+    //{
+    //  /* Ptr points to a pointer. FIXME */
+    //  return Undefined(env->isolate());
+    //}
+    else if (UNIQTYPE_HAS_SUBOBJECTS(t))
+    {
+      /* We can create a new object using the struct template. */
+      Local<ObjectTemplate> struct_l = Local<ObjectTemplate>::New(i, allocs_struct_template);
+      return LOCAL_DEREFABLE_AS(Object, struct_l);
+    }
+    else if (UNIQTYPE_IS_SUBPROGRAM(t))
+    {
+      /* We can create a new object using the function template. */
+      Local<FunctionTemplate> function_l = Local<FunctionTemplate>::New(i, allocs_function_template);
+      Local<Function> fun = function_l->GetFunction();
+      return LOCAL_DEREFABLE_AS(Object, fun);
+    }
+    else if (UNIQTYPE_IS_BASE_OR_ENUM_TYPE(t))
+    {
+      /* Create a mutable base object. */
+      Local<ObjectTemplate> base_l = Local<ObjectTemplate>::New(i, allocs_base_template);
+      return LOCAL_DEREFABLE_AS(Object, base_l);
+     }
+    else
+    {
+      // we fail, but passing the upper bound (also lower bound, since it's primitive)
+      // of what's on the end of the pointer
+      // if (out_innermost) *out_innermost = t;
+      return Undefined(i);
+    }
+    
+    // end of case split
+    assert(false);
+
+}
+
 Local<Value> v8_get_object_with_type(Environment *env, void *ptr, 
     struct uniqtype *t)
 {
@@ -661,69 +716,24 @@ Local<Value> v8_get_object_with_type(Environment *env, void *ptr,
      *      
      */
     
-    if (t->is_array && !UNIQTYPE_IS_POINTER_TYPE(t))
+    Local<Value> tmpl = v8_get_object_template_for_type(env->isolate(), t);
+    Local<Object> obj;
+    if (tmpl->IsUndefined()) return tmpl;
+    
+    if (tmpl->IsFunction())
     {
-      /* We can create a new object using the array template. */
-      Local<ObjectTemplate> array_l = Local<ObjectTemplate>::New(env->isolate(), allocs_array_template);
-      Local<Object> obj = array_l->NewInstance();
-      /* Set its internal pointer field to the address of the array. */
-      obj->SetAlignedPointerInInternalField(0, MANGLE_POINTER_INTERNAL(ptr));
-      /* Set another internal pointer field to the upper bound. */
-      obj->SetAlignedPointerInInternalField(1, t);
-      return obj;
+      obj = LOCAL_DEREFABLE_AS(Function, tmpl)->NewInstance();
     }
-    else if (t->is_array && UNIQTYPE_IS_POINTER_TYPE(UNIQTYPE_POINTEE_TYPE(t)))
-    {
-      /* Ptr points to a pointer. FIXME */
-      return Undefined(env->isolate());
-    }
-    else if (t->nmemb > 1)
-    {
-      /* We can create a new object using the struct template. */
-      Local<ObjectTemplate> struct_l = Local<ObjectTemplate>::New(env->isolate(), allocs_struct_template);
-      Local<Object> obj = struct_l->NewInstance();
-      /* Set its internal pointer field to the address of the struct. */
-      obj->SetAlignedPointerInInternalField(0, MANGLE_POINTER_INTERNAL(ptr));
-      /* Set another internal pointer field to the upper bound. */
-      obj->SetAlignedPointerInInternalField(1, t);
-      return obj;
-    }
-    else if (UNIQTYPE_IS_SUBPROGRAM(t))
-    {
-      /* We can create a new object using the function template. */
-      Local<FunctionTemplate> function_l = Local<FunctionTemplate>::New(env->isolate(), allocs_function_template);
-      Local<Function> fun = function_l->GetFunction();
-      Local<Object> obj = fun->NewInstance();
-      assert(obj->InternalFieldCount() >= 2);
-      /* Set its internal pointer field to the address of the function. */
-      obj->SetAlignedPointerInInternalField(0, MANGLE_POINTER_INTERNAL(ptr));
-      /* Functions have no subobjects so we don't need to store the upper bound. 
-       * Do so anyway, for now. FIXME: also want to pass around arguments with functions,
-       * to make them closures? */
-      obj->SetAlignedPointerInInternalField(1, t);
-      return obj;
-    }
-    else if (UNIQTYPE_IS_BASE(t))
-    {
-      /* Create a mutable base object. */
-      Local<ObjectTemplate> base_l = Local<ObjectTemplate>::New(env->isolate(), allocs_base_template);
-      Local<Object> obj = base_l->NewInstance();
-      /* Set its internal pointer field to the address of the prim. */
-      obj->SetAlignedPointerInInternalField(0, MANGLE_POINTER_INTERNAL(ptr));
-      /* Set another internal pointer field to the upper bound. */
-      obj->SetAlignedPointerInInternalField(1, t);
-      return obj;
-     }
     else
     {
-      // we fail, but passing the upper bound (also lower bound, since it's primitive)
-      // of what's on the end of the pointer
-      // if (out_innermost) *out_innermost = t;
-      return Undefined(env->isolate());
+      obj = LOCAL_DEREFABLE_AS(ObjectTemplate, tmpl)->NewInstance();
     }
+    /* Set its internal pointer field to the address of the array. */
+    obj->SetAlignedPointerInInternalField(0, MANGLE_POINTER_INTERNAL(ptr));
+    /* Set another internal pointer field to the upper bound. */
+    obj->SetAlignedPointerInInternalField(1, t);
+    return obj;
     
-    // end of case split
-    assert(false);
 }
 ffi_type *ffi_type_for_uniqtype(struct uniqtype *t)
 {
@@ -731,7 +741,13 @@ ffi_type *ffi_type_for_uniqtype(struct uniqtype *t)
   if (!t) return &ffi_type_pointer;
   
   if (t == &__uniqtype__int) return &ffi_type_sint;
+  if (t == &__uniqtype__unsigned_int) return &ffi_type_uint;
+  if (t == &__uniqtype__long_int) return &ffi_type_slong;
   if (t == &__uniqtype__unsigned_long_int) return &ffi_type_ulong;
+  if (t == &__uniqtype__short_int) return &ffi_type_sshort;
+  if (t == &__uniqtype__short_unsigned_int) return &ffi_type_ushort;
+  if (t == &__uniqtype__float) return &ffi_type_float;
+  if (t == &__uniqtype__double) return &ffi_type_double;
   if (UNIQTYPE_IS_POINTER_TYPE(t)) return &ffi_type_pointer;
   
   assert(false);
@@ -784,6 +800,23 @@ Local<Value> v8_make_value(Environment *env, void *p_val_raw, struct uniqtype *t
   if (t == &__uniqtype__unsigned_char)      return Number::New(env->isolate(), (double) (unsigned char) *p_val);
   if (t == &__uniqtype__float)              return Number::New(env->isolate(), (double) *(float*) *p_val);
   if (t == &__uniqtype__double)             return Number::New(env->isolate(),*(double  *) p_val);
+  else if (UNIQTYPE_IS_BASE_OR_ENUM_TYPE(t))
+  {
+    /* Use the size field to interpret it as a signed integer. */
+    switch (t->pos_maxoff)
+    {
+      case 8:
+        return Number::New(env->isolate(), (double) (long) *p_val);
+      case 4:
+        return Number::New(env->isolate(), (double) (int) *p_val);
+      case 2:
+        return Number::New(env->isolate(), (double) (short) *p_val);
+      case 1:
+        return Number::New(env->isolate(), (double) (signed char) *p_val);
+      default:
+        assert(false);
+    }
+  }
   else if (UNIQTYPE_IS_POINTER_TYPE(t))
   {
     /* FIXME: strings */
@@ -792,7 +825,18 @@ Local<Value> v8_make_value(Environment *env, void *p_val_raw, struct uniqtype *t
   assert(false); // structs, arrays, ...
 }
 
-void *v8_make_uniqtype_instance(Environment *env, Local<Value> v, struct uniqtype *t)
+void externalize_v8_heap_object(Environment *env, Local<Object> v, struct uniqtype *t)
+{
+  bool success = ExternalizeObject(v, t);
+  /* The first internal field is set as the object address. We need to mangle it. */ 
+  void *ptr = DEMANGLE_POINTER_INTERNAL(v->ToObject()->GetAlignedPointerFromInternalField(0));
+  /* Set its internal pointer field to the address of the array. */
+  v->SetAlignedPointerInInternalField(0, MANGLE_POINTER_INTERNAL(ptr));
+  /* Set another internal pointer field to the upper bound. */
+  v->SetAlignedPointerInInternalField(1, t);
+}
+
+intptr_t v8_make_uniqtype_instance(Environment *env, Local<Value> v, struct uniqtype *t)
 {
   struct AllocsExternalStringResource : v8::String::ExternalAsciiStringResource
   {
@@ -813,77 +857,107 @@ void *v8_make_uniqtype_instance(Environment *env, Local<Value> v, struct uniqtyp
     AllocsExternalStringResource(const String::Utf8Value& v)
      : ExternalAsciiStringResource(), data_(strdup(*v)), length_(strlen(data_)) {}
   };
-  if (!t)
+  
+  fprintf(stderr, "Handling V8 object whose toString says: %s\n", *v8::String::Utf8Value(v));
+  fflush(stderr);
+  if (v->IsObject()) {
+    fprintf(stderr, "V8 object printer says: ");
+    v8::PrintObject(v->ToObject());
+  } else fprintf(stderr, "(not a V8 object)\n");
+  fflush(stderr);
+  /* We have various recipes for turning V8 values into native. 
+   * Some of them work only for particular uniqtypes. */
+#define GUARD(g) do { if (!(g)) goto ill_matched; } while (0)
+  if (v->IsNull())
   {
-    /* We want to generate a single word. Do something a bit more hacky.  */
-    if (v->IsNumber())
+    GUARD(!t || UNIQTYPE_IS_POINTER_TYPE(t));
+    return 0;
+  }
+  else if (v->IsNumber() && (!t || UNIQTYPE_IS_2S_COMPL_INTEGER_TYPE(t)))
+  {
+    return (intptr_t) (long) v->ToNumber()->Value();
+  }
+  else if (v->IsNumberObject() && (!t || UNIQTYPE_IS_2S_COMPL_INTEGER_TYPE(t)))
+  {
+    return (intptr_t) (long) v->ToObject().As<NumberObject>()->NumberValue();
+  }
+  else if (v->IsNumber() && (UNIQTYPE_IS_BASE_OR_ENUM_TYPE(t) && !UNIQTYPE_IS_2S_COMPL_INTEGER_TYPE(t)))
+  {
+    double double_val = v->ToNumber()->Value();
+    float float_val = (float) double_val;
+    switch (t->pos_maxoff)
     {
-      return (void*) (intptr_t) (long) v->ToNumber()->Value();
+      case 4: return *(intptr_t*) &float_val;
+      case 8: return *(intptr_t*) &double_val;
+      default:
+        assert(false);
     }
-    else if (v->IsNumberObject())
+  }
+  else if (v->IsNumberObject() && (UNIQTYPE_IS_BASE_OR_ENUM_TYPE(t) && !UNIQTYPE_IS_2S_COMPL_INTEGER_TYPE(t)))
+  {
+    double double_val = v->ToObject().As<NumberObject>()->NumberValue();
+    float float_val = (float) double_val;
+    switch (t->pos_maxoff)
     {
-      return (void*) (intptr_t) (long) v->ToObject().As<NumberObject>()->NumberValue();
+      case 4: return *(intptr_t*) &float_val;
+      case 8: return *(intptr_t*) &double_val;
+      default:
+        assert(false);
     }
-    else if (v->IsString())
+  }
+  else if (v->IsString())
+  {
+    GUARD(!t || UNIQTYPE_IS_POINTER_TYPE(t));
+    /* We want a pointer to its raw chars. Also we want to keep this pointer
+     * alive longer than just this function, so String::Utf8Value is not a goer. 
+     * Instead, we try to make it external. */
+    if (v->ToString()->IsExternal()) return (intptr_t) v->ToString()->GetExternalStringResource()->data();
+    else
     {
-      /* We want a pointer to its raw chars. Also we want to keep this pointer
-       * alive longer than just this function, so String::Utf8Value is not a goer. 
-       * Instead, we try to make it external. */
-      if (v->ToString()->IsExternal()) return (void*) v->ToString()->GetExternalStringResource()->data();
-      else
-      {
-        String::Utf8Value data(v->ToString());
-        /* HACK: need to keep this data alive somehow... */
-        AllocsExternalStringResource *p_res = new AllocsExternalStringResource(data);
+      String::Utf8Value data(v->ToString());
+      /* HACK: need to keep this data alive somehow... */
+      AllocsExternalStringResource *p_res = new AllocsExternalStringResource(data);
 
-        bool success = v->ToString()->MakeExternal(p_res);
-        assert(success);
+      bool success = v->ToString()->MakeExternal(p_res);
+      assert(success);
 
-        return (void*) p_res->data();
-      }
+      return (intptr_t) p_res->data();
     }
-    else if (v->IsStringObject())
-    {
-      assert(false);
-    }
-    /* what if v is an allocs object? */
-    else if (v->IsObject() && IS_NATIVE_OBJECT(v->ToObject()))
-    {
-      /* FIXME: account for depth */
-      return DEMANGLE_POINTER_INTERNAL(v->ToObject()->GetAlignedPointerFromInternalField(0));
-    }
+  }
+  else if (v->IsStringObject())
+  {
+    GUARD(!t || UNIQTYPE_IS_POINTER_TYPE(t));
     assert(false);
+//     if (v->ToObject().As<StringObject>()->IsExternal())
+//     {
+//      return (intptr_t) v->ToObject().As<StringObject>()->GetExternalStringResource()->data();
+//     }
+//     else
+//     {
+//       String::Utf8Value data(v->ToString());
+//       /* HACK: need to keep this data alive somehow... */
+//       AllocsExternalStringResource *p_res = new AllocsExternalStringResource(data);
+// 
+//       bool success = v->ToObject().As<StringObject>()->MakeExternal(p_res);
+//       assert(success);
+// 
+//       return (intptr_t) p_res->data();
+//     }
+  }
+  else if (v->IsArray() && t && UNIQTYPE_IS_POINTER_TYPE(t))
+  {
+    /* We want to externalise the array and pass a pointer to it. */
+    externalize_v8_heap_object(env, v->ToObject(), UNIQTYPE_POINTEE_TYPE(t));
+    return (intptr_t) DEMANGLE_POINTER_INTERNAL(v->ToObject()->GetAlignedPointerFromInternalField(0));
+  }
+  /* what if v is an allocs object? */
+  else if (v->IsObject() && IS_NATIVE_OBJECT(v->ToObject()))
+  {
+    /* FIXME: account for depth */
+    return (intptr_t) DEMANGLE_POINTER_INTERNAL(v->ToObject()->GetAlignedPointerFromInternalField(0));
   }
 
-  if (t == &__uniqtype__int)
-  {
-    /* We expect to have a JS number. */
-  }
-  if (t == &__uniqtype__unsigned_long_int)
-  {
-     /* We expect to have a JS number. */
-     if (v->IsNumber())
-     {
-     
-     }
-     else if (v->IsNumberObject()) 
-     {
-     
-     }
-     else if (v->IsString())
-     {
-     
-     }
-     else if (v->IsStringObject())
-     {
-     
-     }
-     else
-     {
-      assert(false);
-     }
-  }
-  if (UNIQTYPE_IS_POINTER_TYPE(t))
+  if (t && UNIQTYPE_IS_POINTER_TYPE(t))
   {
     /* We expect to have a JS object. 
        If the JS code got hold of it through us, 
@@ -904,7 +978,10 @@ void *v8_make_uniqtype_instance(Environment *env, Local<Value> v, struct uniqtyp
        into the form demanded by the uniqtype.
      */
   }
-  
+  /* If we got here, we don't know how to handle this.
+   * It might mean we're missing some uniqtypes information. */
+  assert(false);
+ill_matched:
   assert(false);
 }
 
@@ -920,17 +997,20 @@ Local<Value> v8_get_primitive(Environment *env, void *ptr, struct uniqtype *prim
 
 _Bool v8_put_primitive(Environment *env, void *ptr, struct uniqtype *prim_t, Local<Value> value_to_put)
 {
-
+  assert(false);
+  return false;
 }
 
 Local<Value> v8_get_indexed(Environment *env, void *ptr, int ind, struct uniqtype *element_outermost)
 {
-
+  assert(false);
+  return Undefined(env->isolate());
 }
 
 Local<Value> v8_get_named(Environment *env, void *ptr, const char *n, struct uniqtype *element_outermost)
 {
-
+  assert(false);
+  return Undefined(env->isolate());
 }
 
 Local<Value> v8_set_indexed(Environment *env, void *ptr, int ind, 
@@ -944,12 +1024,15 @@ Local<Value> v8_set_indexed(Environment *env, void *ptr, int ind,
      * manually destruct it (as a PersistentHandle) somehow. That doesn't handle
      * the case of random C code manipulating the same pointer field,
      * but that might be an unusual pattern. */
+  assert(false);
+  return Undefined(env->isolate());
 }
 
 Local<Value> v8_set_named(Environment *env, void *ptr, const char *n, 
     struct uniqtype *element_outermost, void *val)
 {
-
+  assert(false);
+  return Undefined(env->isolate());
 }
 
 } // end namespace node

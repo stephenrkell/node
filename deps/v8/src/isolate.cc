@@ -2190,7 +2190,8 @@ ISOLATE_INIT_ARRAY_LIST(ISOLATE_FIELD_OFFSET)
 
 Handle<JSObject> Isolate::GetSymbolRegistry() {
   if (heap()->symbol_registry()->IsUndefined()) {
-    Handle<Map> map = factory()->NewMap(JS_OBJECT_TYPE, JSObject::kHeaderSize);
+    Handle<Map> map = factory()->NewMap(JS_OBJECT_TYPE, 
+        ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(JSObject::kHeaderSize));
     Handle<JSObject> registry = factory()->NewJSObjectFromMap(map);
     heap()->set_symbol_registry(*registry);
 

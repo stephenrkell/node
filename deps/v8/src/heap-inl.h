@@ -195,8 +195,24 @@ AllocationResult Heap::AllocateRaw(int size_in_bytes,
   isolate_->counters()->objs_since_last_young()->Increment();
 #endif
 
-  HeapObject* object;
+  HeapObject* object = 0;
   AllocationResult allocation;
+  /* HACK: ensure the first few non-header words are zeroed. This is so that 
+   * any "compulsory padding" fields take a harmless Smi value (0) rather than
+   * a possibly harmful filler value like deadbeef. */
+#define ZERO_PADDING(allocation) do { \
+    int success = (allocation).To(&object); \
+    ASSERT(success); \
+    ASSERT(object != NULL); \
+    ASSERT(object->address()); \
+    unsigned long long addr = reinterpret_cast<unsigned long long>(object->address()) & ~0x1ul; \
+    for (int offset = HeapObject::kHeaderSize; \
+        offset < ROUND_UP_TO_MIN_INSTANCE_SIZE_BYTES(HeapObject::kHeaderSize) \
+        && offset + kPointerSize <= size_in_bytes; offset += kPointerSize) { \
+           \
+      *((Object**) (addr + offset)) = Smi::FromInt(42); \
+    } \
+    } while (0)
   if (NEW_SPACE == space) {
     allocation = new_space_.AllocateRaw(size_in_bytes);
     if (always_allocate() &&
@@ -207,6 +223,7 @@ AllocationResult Heap::AllocateRaw(int size_in_bytes,
       if (profiler->is_tracking_allocations() && allocation.To(&object)) {
         profiler->AllocationEvent(object->address(), size_in_bytes);
       }
+      if (!allocation.IsRetry()) ZERO_PADDING(allocation);
       return allocation;
     }
   }
@@ -231,6 +248,7 @@ AllocationResult Heap::AllocateRaw(int size_in_bytes,
   if (profiler->is_tracking_allocations() && allocation.To(&object)) {
     profiler->AllocationEvent(object->address(), size_in_bytes);
   }
+  if (!allocation.IsRetry()) ZERO_PADDING(allocation);
   return allocation;
 }
 

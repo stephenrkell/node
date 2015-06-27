@@ -1917,7 +1917,9 @@ bool V8HeapExplorer::IsEssentialObject(Object* object) {
       && object != heap_->shared_function_info_map()
       && object != heap_->free_space_map()
       && object != heap_->one_pointer_filler_map()
-      && object != heap_->two_pointer_filler_map();
+      && object != heap_->two_pointer_filler_map()
+      && object != heap_->three_pointer_filler_map()
+      && object != heap_->four_pointer_filler_map();
 }
 
 

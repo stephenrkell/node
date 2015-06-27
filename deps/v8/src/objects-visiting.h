@@ -94,10 +94,10 @@ class StaticVisitorBase : public AllStatic {
     VISITOR_ID_LIST(VISITOR_ID_ENUM_DECL)
 #undef VISITOR_ID_ENUM_DECL
     kVisitorIdCount,
-    kVisitDataObject = kVisitDataObject2,
-    kVisitJSObject = kVisitJSObject2,
-    kVisitStruct = kVisitStruct2,
-    kMinObjectSizeInWords = 2
+    kVisitDataObject = /* kVisitDataObject2 */ kVisitDataObject5,
+    kVisitJSObject = /* kVisitJSObject2 */ kVisitJSObject5,
+    kVisitStruct = /* kVisitStruct2 */ kVisitStruct5,
+    kMinObjectSizeInWords = /* 2 */ 5
   };
 
   // Visitor ID should fit in one byte.
@@ -173,9 +173,12 @@ class VisitorDispatchTable {
   void RegisterSpecializations() {
     STATIC_ASSERT(
         (generic - base + StaticVisitorBase::kMinObjectSizeInWords) == 10);
-    RegisterSpecialization<Visitor, base, generic, 2>();
+    /* Register specializations for object sizes ranging from 
+     * the minimum object size up (not including) to the size cut-off for generic treatment.
+     * They go in visitor slots base + <size> */
+    /* RegisterSpecialization<Visitor, base, generic, 2>();
     RegisterSpecialization<Visitor, base, generic, 3>();
-    RegisterSpecialization<Visitor, base, generic, 4>();
+    RegisterSpecialization<Visitor, base, generic, 4>(); */
     RegisterSpecialization<Visitor, base, generic, 5>();
     RegisterSpecialization<Visitor, base, generic, 6>();
     RegisterSpecialization<Visitor, base, generic, 7>();
